@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MagicUWE Web 1.5.0 — Entorno de Modelado UWE 3.0 para Tesis Universitaria</title>
+  <style>
+    /* ==================== MAGICDRAW 18.0 THEME & SYSTEM STYLES ==================== */
+    :root {
+      --md-bg-gray: #ECE9D8;
+      --md-panel-bg: #F4F3EE;
+      --md-border-gray: #9E9E9E;
+      --md-dark-border: #716F64;
+      --md-active-blue: #316AC5;
+      --md-header-blue: #C5D8F7;
+      --md-class-fill: #FFE2C6;
+      --md-class-border: #99795C;
+      --md-state-fill: #DDDDFF;
+      --md-action-fill: #E1E1C3;
+      --md-usecase-fill: #FFFFCC;
+      --md-text: #1F1F1F;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11.5px;
+      color: var(--md-text);
+      background-color: var(--md-bg-gray);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Top Menu & Header */
+    .md-top-nav {
+      background: linear-gradient(180deg, #FDFDFD 0%, #E6E4D9 100%);
+      border-bottom: 1px solid var(--md-dark-border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .md-title-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 10px;
+      background: linear-gradient(90deg, #1C4D8F 0%, #3B72BA 100%);
+      color: #FFFFFF;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .md-title-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .md-title-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .md-badge-pill {
+      font-size: 10px;
+      font-weight: normal;
+      background: rgba(255, 255, 255, 0.22);
+      padding: 2px 7px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .md-menu-bar {
+      display: flex;
+      align-items: center;
+      padding: 1px 6px;
+      background: #ECE9D8;
+      border-bottom: 1px solid #D0CEBF;
+      gap: 2px;
+    }
+
+    .md-menu-dropdown {
+      position: relative;
+    }
+
+    .md-menu-trigger {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 3px 9px;
+      font-size: 11.5px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .md-menu-trigger:hover, .md-menu-dropdown:hover .md-menu-trigger {
+      background: #B6BDD2;
+      border: 1px solid #316AC5;
+      color: #000;
+    }
+
+    .md-dropdown-content {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      background: #FFFFFF;
+      border: 1px solid #716F64;
+      box-shadow: 2px 3px 6px rgba(0, 0, 0, 0.25);
+      z-index: 1000;
+      min-width: 250px;
+      padding: 2px 0;
+    }
+
+    .md-menu-dropdown:hover .md-dropdown-content {
+      display: block;
+    }
+
+    .md-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 12px;
+      font-size: 11px;
+      cursor: pointer;
+      text-decoration: none;
+      color: #222;
+    }
+
+    .md-menu-item:hover {
+      background: #316AC5;
+      color: #FFFFFF;
+    }
+
+    .md-menu-divider {
+      height: 1px;
+      background: #E0DFD8;
+      margin: 3px 0;
+    }
+
+    /* Main Toolbar */
+    .md-main-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 8px;
+      background: #F3F1E7;
+      border-bottom: 1px solid var(--md-dark-border);
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .tb-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tb-sep {
+      width: 1px;
+      height: 20px;
+      background: #BDB9A6;
+      margin: 0 4px;
+    }
+
+    .md-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: linear-gradient(180deg, #FFFFFF 0%, #E8E5D6 100%);
+      border: 1px solid #716F64;
+      border-radius: 3px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      color: #1F1F1F;
+    }
+
+    .md-btn:hover {
+      background: linear-gradient(180deg, #FBFBFB 0%, #D8D4C0 100%);
+      border-color: #316AC5;
+    }
+
+    .md-btn:active {
+      background: #D4D0BC;
+    }
+
+    .md-btn-primary {
+      background: linear-gradient(180deg, #3B72BA 0%, #1C4D8F 100%);
+      border-color: #0E356A;
+      color: #FFFFFF;
+      font-weight: bold;
+    }
+
+    .md-btn-primary:hover {
+      background: linear-gradient(180deg, #4A83CE 0%, #225AA1 100%);
+      color: #FFF;
+    }
+
+    .md-btn-google {
+      background: #FFFFFF;
+      border: 1px solid #C4C4C4;
+      color: #374151;
+      font-weight: bold;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    .md-btn-google:hover {
+      background: #F8FAFC;
+      border-color: #4285F4;
+    }
+
+    .md-btn-danger {
+      background: #FEE2E2;
+      border-color: #DC2626;
+      color: #991B1B;
+    }
+
+    .md-btn-sm {
+      padding: 2px 6px;
+      font-size: 10.5px;
+    }
+
+    .md-btn-full {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .md-input, select.md-input {
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      border: 1px solid #7F9DB9;
+      padding: 3px 5px;
+      background: #FFFFFF;
+      border-radius: 2px;
+    }
+
+    .md-input-sm {
+      padding: 2px 4px;
+      font-size: 10px;
+    }
+
+    /* User Badge */
+    .user-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: #FFFFFF;
+      border: 1px solid #7F9DB9;
+      padding: 2px 7px;
+      border-radius: 14px;
+    }
+
+    .user-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #E5E7EB;
+    }
+
+    .user-info-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+    }
+
+    .user-name {
+      font-weight: bold;
+      font-size: 10.5px;
+    }
+
+    .user-provider {
+      font-size: 9px;
+      color: #6B7280;
+    }
+
+    /* Main Layout Grid */
+    .md-main-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 240px 1fr 280px;
+      background: #ECE9D8;
+      overflow: hidden;
+    }
+
+    /* Left Sidebar: Containment Tree */
+    .md-sidebar-left {
+      background: #FFFFFF;
+      border-right: 1px solid var(--md-dark-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .dock-title {
+      background: linear-gradient(180deg, #E6E4D9 0%, #D8D4C5 100%);
+      border-bottom: 1px solid #B0AC9B;
+      padding: 4px 8px;
+      font-weight: bold;
+      font-size: 11px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tree-scroll-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 4px;
+    }
+
+    .tree-node {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 6px;
+      cursor: pointer;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+
+    .tree-node:hover {
+      background: #EAEFF8;
+    }
+
+    .tree-node.active, .tree-node.selected {
+      background: #316AC5;
+      color: #FFFFFF;
+    }
+
+    .tree-caret {
+      font-size: 9px;
+      color: #666;
+      width: 10px;
+    }
+
+    .tree-stereo {
+      color: #666;
+      font-size: 10px;
+    }
+
+    .tree-node.active .tree-stereo, .tree-node.selected .tree-stereo {
+      color: #E2E8F0;
+    }
+
+    .tree-children {
+      margin-left: 14px;
+      border-left: 1px dotted #BDB9A6;
+      padding-left: 4px;
+    }
+
+    /* Center Workspace */
+    .workspace-center {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: #D4D0C8;
+    }
+
+    /* Diagram Tabs */
+    .md-tabs-bar {
+      display: flex;
+      align-items: flex-end;
+      background: #ECE9D8;
+      border-bottom: 1px solid #716F64;
+      padding: 4px 6px 0 6px;
+      gap: 3px;
+      overflow-x: auto;
+    }
+
+    .dg-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      background: #E0DDD0;
+      border: 1px solid #9E9A88;
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      font-size: 11px;
+      cursor: pointer;
+      color: #444;
+    }
+
+    .dg-tab.active {
+      background: #FFFFFF;
+      border-color: #716F64;
+      color: #000;
+      font-weight: bold;
+      border-top: 2px solid #1C4D8F;
+      padding-bottom: 5px;
+      margin-bottom: -1px;
+    }
+
+    .dg-tab-add {
+      background: transparent;
+      border: 1px dashed #9E9A88;
+      color: #1C4D8F;
+      font-weight: bold;
+    }
+
+    /* Visual + XML Split View */
+    .workspace-views-split {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .visual-pane {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Contextual Palette on left of canvas */
+    .canvas-palette {
+      width: 170px;
+      min-width: 170px;
+      background: #F0EEE4;
+      border-right: 1px solid #B0AC9B;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      z-index: 5;
+    }
+
+    .palette-header {
+      background: #E2DFD0;
+      border-bottom: 1px solid #B0AC9B;
+      padding: 4px 6px;
+      font-weight: bold;
+      font-size: 10.5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .palette-tools {
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .palette-separator {
+      font-size: 9.5px;
+      color: #666;
+      font-weight: bold;
+      padding: 6px 3px 2px 3px;
+      text-transform: uppercase;
+      border-bottom: 1px solid #DDD;
+      margin-top: 4px;
+    }
+
+    .palette-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 6px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      font-size: 11px;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      user-select: none;
+    }
+
+    .palette-btn[draggable="true"] {
+      cursor: grab;
+    }
+
+    .palette-btn[draggable="true"]:active {
+      cursor: grabbing;
+    }
+
+    .palette-btn:hover {
+      background: #FFF;
+      border-color: #B0AC9B;
+    }
+
+    .palette-btn.active {
+      background: #B6BDD2;
+      border-color: #316AC5;
+      font-weight: bold;
+    }
+
+    .palette-btn-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-kbd {
+      display: none;
+    }
+
+    /* Diagram Canvas */
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      background: #FFFFFF;
+      overflow: auto;
+      box-shadow: inset 1px 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .canvas-surface {
+      position: relative;
+      min-width: 1400px;
+      min-height: 950px;
+      background-color: #FFFFFF;
+      /* Grid background */
+      background-image:
+        linear-gradient(to right, #F5F5F5 1px, transparent 1px),
+        linear-gradient(to bottom, #F5F5F5 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    /* MagicDraw 18 Diagram Frame Header */
+    .md-diagram-frame-header {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      background: #EAEFF8;
+      border: 1px solid #8C96A8;
+      border-bottom: none;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-family: Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      clip-path: polygon(0 0, 100% 0, 100% 70%, calc(100% - 12px) 100%, 0 100%);
+      padding-right: 18px;
+      box-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .frame-kw { font-weight: bold; color: #1F2937; }
+    .frame-pkg { color: #374151; }
+    .frame-bracket { color: #6B7280; font-weight: bold; }
+    .frame-dg-name { font-weight: bold; color: #111827; }
+
+    /* SVG Edges Layer */
+    .canvas-edges-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+    }
+
+    /* HTML Nodes Layer */
+    .canvas-nodes-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* MagicDraw 18 Node Styling */
+    .md-node {
+      position: absolute;
+      pointer-events: auto;
+      cursor: move;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      border: 1px solid var(--md-class-border);
+      background-color: var(--md-class-fill);
+      box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.15);
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .md-node.selected {
+      outline: 2px solid #0055D4;
+      box-shadow: 0 0 8px rgba(0, 85, 212, 0.5);
+    }
+
+    .md-node.pending-source {
+      outline: 2px dashed #DC2626;
+      animation: pulse 1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { outline-color: #DC2626; }
+      to { outline-color: #F87171; }
+    }
+
+    .md-node-header {
+      padding: 5px 8px;
+      text-align: center;
+      position: relative;
+    }
+
+    .md-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      margin-bottom: 2px;
+    }
+
+    .md-stereo {
+      font-size: 10.5px;
+      color: #1F1F1F;
+      font-weight: normal;
+    }
+
+    .md-node-icon {
+      position: absolute;
+      right: 0;
+      top: 0;
+    }
+
+    .md-title {
+      font-weight: bold;
+      font-size: 11.5px;
+      color: #000000;
+    }
+
+    .md-tags-list {
+      margin-top: 3px;
+      font-size: 9.5px;
+      color: #280000;
+    }
+
+    .md-tag {
+      line-height: 1.2;
+    }
+
+    .md-compartment {
+      border-top: 1px solid var(--md-class-border);
+      padding: 4px 6px;
+      font-size: 10.5px;
+    }
+
+    .md-attributes {
+      color: #280000;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .md-attr-item {
+      padding: 1px 0;
+    }
+
+    .md-compartment-empty {
+      min-height: 8px;
+    }
+
+    /* Nested Properties in Presentation Diagrams (DrawPropertyAction) */
+    .md-nested-props {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+      gap: 6px;
+      padding: 6px;
+      background: rgba(255, 255, 255, 0.35);
+    }
+
+    .md-nested-prop-box {
+      background: #FFE2C6;
+      border: 1px dashed #998D5C;
+      padding: 4px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .md-nested-prop-box:hover {
+      background: #FFF0E0;
+    }
+
+    .md-nested-prop-box.selected {
+      outline: 2px solid #0055D4;
+    }
+
+    .md-nested-prop-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+
+    .md-nested-prop-name {
+      font-weight: bold;
+      font-size: 10.5px;
+      color: #000;
+      text-align: center;
+    }
+
+    .md-nested-empty {
+      grid-column: 1 / -1;
+      font-size: 10px;
+      color: #777;
+      text-align: center;
+      padding: 10px 4px;
+      font-style: italic;
+    }
+
+    .md-resize-handle {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      width: 10px;
+      height: 10px;
+      background: #316AC5;
+      cursor: se-resize;
+      z-index: 10;
+    }
+
+    /* UseCase Oval & Centered Content (MagicDraw 18.0) */
+    .md-node.md-uml-usecase,
+    .md-node-usecase {
+      border-radius: 50% !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      padding: 8px 16px !important;
+      box-sizing: border-box !important;
+      overflow: visible !important;
+    }
+
+    .md-usecase-inner {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      pointer-events: none;
+      padding: 4px 10px;
+      box-sizing: border-box;
+    }
+
+    .md-usecase-header {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      margin-bottom: 2px;
+      line-height: 1.2;
+      text-align: center;
+    }
+
+    .md-usecase-inline-icon {
+      display: inline-block;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+
+    .md-usecase-title {
+      font-weight: bold;
+      font-size: 11.5px;
+      color: #000000;
+      text-align: center;
+      line-height: 1.25;
+      word-break: break-word;
+      max-width: 90%;
+      margin: 0 auto;
+    }
+
+    .md-usecase-tags {
+      margin-top: 3px;
+      font-size: 9.5px;
+      color: #280000;
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .md-node.md-uml-usecase .md-resize-handle,
+    .md-node-usecase .md-resize-handle {
+      right: 8px;
+      bottom: 8px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #0055D4;
+      border: 2px solid #FFFFFF;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+      cursor: se-resize;
+      z-index: 10;
+    }
+
+    /* Activity Initial & Final Nodes */
+    .md-initial-circle {
+      width: 24px;
+      height: 24px;
+      background: #111;
+      border-radius: 50%;
+      margin: 2px auto;
+    }
+
+    .md-final-bullseye {
+      width: 26px;
+      height: 26px;
+      border: 2px solid #111;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #FFF;
+      margin: 2px auto;
+    }
+
+    .md-final-bullseye div {
+      width: 14px;
+      height: 14px;
+      background: #111;
+      border-radius: 50%;
+    }
+
+    .md-node-actor {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .md-actor-caption {
+      text-align: center;
+      margin-top: 3px;
+    }
+
+    /* Canva-Style Layers & Grouping Styles */
+    .md-node.in-group {
+      box-shadow: 0 0 0 1.5px #7C3AED, 2px 2px 6px rgba(124, 58, 237, 0.25);
+    }
+    .md-node.multi-selected {
+      outline: 2px dashed #3B82F6 !important;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.45);
+    }
+    .md-node.selected.in-group {
+      outline: 2px solid #7C3AED !important;
+      box-shadow: 0 0 12px rgba(124, 58, 237, 0.6);
+    }
+    .md-group-badge {
+      position: absolute;
+      top: -16px;
+      left: 0;
+      background: #7C3AED;
+      color: #FFFFFF;
+      font-size: 9px;
+      font-weight: bold;
+      padding: 1px 5px;
+      border-radius: 2px 2px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .md-layer-badge {
+      position: absolute;
+      top: -16px;
+      right: 0;
+      background: #4B5563;
+      color: #FFFFFF;
+      font-size: 8.5px;
+      padding: 1px 4px;
+      border-radius: 2px 2px 0 0;
+      pointer-events: none;
+    }
+    .tb-group-title {
+      font-size: 10px;
+      font-weight: bold;
+      color: #4B5563;
+      margin-right: 2px;
+    }
+
+    /* XML Editor Pane */
+    .xml-pane {
+      width: 440px;
+      background: #1E1E1E;
+      color: #D4D4D4;
+      border-left: 2px solid var(--md-dark-border);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .xml-header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      background: #2D2D2D;
+      border-bottom: 1px solid #3F3F3F;
+    }
+
+    .xml-status-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .xml-status-badge.synced {
+      background: #065F46;
+      color: #A7F3D0;
+    }
+
+    .xml-status-badge.dirty {
+      background: #78350F;
+      color: #FDE68A;
+    }
+
+    .xml-textarea {
+      flex: 1;
+      background: #1E1E1E;
+      color: #9CDCFE;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 10px;
+      border: none;
+      resize: none;
+      outline: none;
+      white-space: pre;
+    }
+
+    /* Right Sidebar: Properties & Tagged Values Inspector */
+    .md-sidebar-right {
+      background: #F4F3EE;
+      border-left: 1px solid var(--md-dark-border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .insp-section {
+      padding: 8px;
+    }
+
+    .insp-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: bold;
+      font-size: 11.5px;
+      border-bottom: 1px solid #D0CEBF;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+    }
+
+    .insp-field {
+      margin-bottom: 7px;
+    }
+
+    .insp-field label {
+      display: block;
+      font-size: 10px;
+      color: #555;
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+
+    .insp-row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .insp-subheader {
+      font-size: 10.5px;
+      font-weight: bold;
+      color: #1C4D8F;
+      margin: 10px 0 4px 0;
+      border-bottom: 1px dashed #CCC;
+      padding-bottom: 2px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .insp-attrs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+
+    .insp-attr-row {
+      display: flex;
+      gap: 3px;
+    }
+
+    .insp-tags-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 180px;
+      overflow-y: auto;
+      background: #FFF;
+      border: 1px solid #D0CEBF;
+      padding: 4px;
+    }
+
+    .insp-tag-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .insp-tag-name {
+      width: 100px;
+      font-size: 10px;
+      color: #280000;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .insp-ria-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background: #FFF;
+      border: 1px solid #D0CEBF;
+      padding: 5px;
+    }
+
+    .insp-ria-check {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .insp-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .insp-nested-highlight {
+      background: #FFF7ED;
+      border: 1px solid #FDBA74;
+      padding: 6px;
+      border-radius: 3px;
+      margin-bottom: 8px;
+    }
+
+    .insp-access-primitives {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin-top: 6px;
+    }
+
+    .insp-stats {
+      font-size: 10.5px;
+      color: #444;
+      line-height: 1.6;
+      background: #FFF;
+      padding: 6px;
+      border: 1px solid #D0CEBF;
+      margin: 6px 0;
+    }
+
+    .insp-badge {
+      display: inline-block;
+      background: #EAEFF8;
+      border: 1px solid #8C96A8;
+      padding: 2px 6px;
+      font-weight: bold;
+      color: #1F2937;
+      border-radius: 2px;
+    }
+
+    /* Bottom Status Bar */
+    .md-status-bar {
+      height: 22px;
+      background: #ECE9D8;
+      border-top: 1px solid var(--md-dark-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      font-size: 10.5px;
+      color: #444;
+    }
+
+    .sb-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+
+    .modal-window {
+      background: #ECE9D8;
+      border: 2px solid #316AC5;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      border-radius: 4px;
+      width: 90%;
+      max-width: 620px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      background: linear-gradient(90deg, #1C4D8F 0%, #3B72BA 100%);
+      color: #FFFFFF;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      color: #FFF;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .modal-body {
+      padding: 14px;
+      background: #F4F3EE;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .auth-modal-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 11.5px;
+    }
+
+    .auth-welcome-banner {
+      background: #EBF3FC;
+      border: 1px solid #7FAAD9;
+      border-radius: 4px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .auth-welcome-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .auth-welcome-text h4 {
+      margin: 0 0 3px 0;
+      font-size: 12.5px;
+      color: #103869;
+    }
+
+    .auth-welcome-text p {
+      margin: 0;
+      color: #2D3748;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .auth-tabs-bar {
+      display: flex;
+      border-bottom: 2px solid #316AC5;
+      gap: 4px;
+      background: #E4E1D1;
+      padding: 4px 6px 0 6px;
+      border-radius: 4px 4px 0 0;
+    }
+
+    .auth-tab-btn {
+      background: #D8D4C0;
+      border: 1px solid #A8A492;
+      border-bottom: none;
+      padding: 6px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 4px 4px 0 0;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+
+    .auth-tab-btn:hover {
+      background: #ECE8D8;
+    }
+
+    .auth-tab-btn.active {
+      background: #FFFFFF;
+      border-color: #316AC5;
+      border-bottom: 2px solid #FFFFFF;
+      margin-bottom: -2px;
+      color: #103869;
+    }
+
+    .auth-tab-pane {
+      display: none;
+      background: #FFFFFF;
+      border: 1px solid #C4C0AE;
+      border-top: none;
+      padding: 14px 16px;
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    }
+
+    .auth-tab-pane.active {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .auth-env-badge {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 11px;
+      padding: 8px 10px;
+      border-radius: 3px;
+      line-height: 1.4;
+    }
+
+    .auth-env-badge.configured {
+      background: #E6F4EA;
+      border: 1px solid #34A853;
+      color: #137333;
+    }
+
+    .auth-env-badge.notice {
+      background: #FEF7E0;
+      border: 1px solid #F9AB00;
+      color: #7A4F01;
+    }
+
+    .auth-help-details {
+      background: #F8F9FA;
+      border: 1px dashed #B0AC9B;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 10.5px;
+      color: #444;
+      line-height: 1.45;
+    }
+
+    .auth-help-details code {
+      background: #EEE;
+      padding: 1px 4px;
+      border-radius: 2px;
+      color: #C7254E;
+    }
+
+    .auth-footer-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #D0CEBF;
+    }
+
+    .auth-link-text {
+      font-size: 11px;
+      color: #1C4D8F;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    .auth-link-text:hover {
+      color: #0B2547;
+    }
+
+    .auth-modal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .auth-gmail-box {
+      background: #FFFFFF;
+      border: 1px solid #4285F4;
+      padding: 12px;
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .auth-standard-box {
+      background: #FFFFFF;
+      border: 1px solid #D0CEBF;
+      padding: 12px;
+      border-radius: 4px;
+    }
+
+    .new-dg-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      max-height: 280px;
+      overflow-y: auto;
+      margin-top: 6px;
+    }
+
+    .new-dg-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #FFFFFF;
+      border: 1px solid #D0CEBF;
+      padding: 6px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .new-dg-option.selected {
+      border-color: #316AC5;
+      background: #EAEFF8;
+    }
+
+    .new-dg-opt-title { font-weight: bold; font-size: 11px; }
+    .new-dg-opt-pkg { font-size: 9.5px; color: #666; }
+
+    .sqlite-inspector {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .sqlite-meta-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .sqlite-card {
+      background: #FFFFFF;
+      border: 1px solid #D0CEBF;
+      padding: 8px;
+      border-radius: 3px;
+      text-align: center;
+    }
+
+    .sqlite-card-label { font-size: 9.5px; color: #666; }
+    .sqlite-card-val { font-size: 13px; font-weight: bold; color: #1C4D8F; margin-top: 3px; }
+    .sqlite-desc { font-size: 11px; line-height: 1.4; color: #444; }
+    .sqlite-actions-bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+    /* Toasts Container */
+    #toast-container {
+      position: fixed;
+      bottom: 28px;
+      right: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 3000;
+    }
+
+    .toast {
+      background: #1F2937;
+      color: #FFFFFF;
+      padding: 8px 14px;
+      border-radius: 4px;
+      font-size: 11.5px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: slideIn 0.2s ease-out;
+    }
+
+    .toast-success { background: #065F46; border-left: 4px solid #34D399; }
+    .toast-error { background: #991B1B; border-left: 4px solid #F87171; }
+    .toast-info { background: #1E3A8A; border-left: 4px solid #60A5FA; }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast-hide { opacity: 0; transform: translateY(10px); transition: 0.3s; }
+  
+    /* Example Projects Welcome Dialog Styles */
+    .examples-modal-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 16px;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    .examples-header-desc {
+      font-size: 12px;
+      color: #222;
+      margin: 0 0 4px 0;
+      line-height: 1.45;
+    }
+    .example-card {
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      background: #FFFFFF;
+      border: 2px solid #B0C4DE;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      user-select: none;
+    }
+    .example-card:hover {
+      border-color: #316AC5;
+      background: #F4F8FD;
+      box-shadow: 0 2px 8px rgba(49, 106, 197, 0.2);
+    }
+    .example-card.selected {
+      border-color: #1C4D8F;
+      background: #E8F1FC;
+      box-shadow: 0 0 0 1px #1C4D8F;
+    }
+    .example-card-radio {
+      margin-top: 4px;
+      cursor: pointer;
+    }
+    .example-card-icon {
+      font-size: 26px;
+      min-width: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .example-card-content {
+      flex: 1;
+    }
+    .example-card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .example-card-title {
+      font-weight: bold;
+      font-size: 13px;
+      color: #1C4D8F;
+    }
+    .example-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: #E0E7FF;
+      color: #3730A3;
+      font-weight: 600;
+    }
+    .example-badge.recommended {
+      background: #DCFCE7;
+      color: #166534;
+      border: 1px solid #86EFAC;
+    }
+    .example-card-desc {
+      font-size: 11px;
+      color: #444;
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .example-card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .example-tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: #F1F5F9;
+      border: 1px solid #CBD5E1;
+      border-radius: 3px;
+      color: #475569;
+    }
+    .examples-modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      background: #E4E0CE;
+      border-top: 1px solid #C0BCAC;
+    }
+    .examples-remember-check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #333;
+      cursor: pointer;
+    }
+
+  
+    /* PDF Reference Banner & Links in Examples */
+    .pdf-reference-banner {
+      background: #EEF2FF;
+      border: 1px solid #C7D2FE;
+      border-radius: 4px;
+      padding: 9px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .example-pdf-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #316AC5;
+      text-decoration: none;
+      padding: 2px 7px;
+      background: #F0F7FF;
+      border: 1px solid #BFDBFE;
+      border-radius: 3px;
+      transition: all 0.15s ease;
+    }
+    .example-pdf-link:hover {
+      background: #DBEAFE;
+      color: #1E40AF;
+      border-color: #93C5FD;
+      text-decoration: underline;
+    }
+
+    /* Containment Tree Carets & Badges */
+    .tree-caret {
+      font-size: 9px;
+      color: #555;
+      width: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.12s ease;
+    }
+    .tree-pkg {
+      user-select: none;
+    }
+    .tree-count-badge {
+      font-size: 10px;
+      color: #777;
+      margin-left: auto;
+      padding-right: 4px;
+    }
+    .tree-node.active .tree-count-badge, .tree-node.selected .tree-count-badge {
+      color: #CBD5E1;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- Top Title & Menu Bar -->
+  <header class="md-top-nav">
+    <div class="md-title-bar">
+      <div class="md-title-left">
+        <img id="brand-uwe-logo" width="16" height="16" alt="MagicUWE Logo" />
+        <span>MagicUWE 1.5.0 Web — UML-based Web Engineering Modeler (LMU Munich 100% Fidelity)</span>
+      </div>
+      <div class="md-title-badges">
+        <span class="md-badge-pill">UWE 3.0 Meta-Profile</span>
+        <span class="md-badge-pill">Exact MagicDraw 18.0 Design</span>
+        <span class="md-badge-pill">SQLite + Gmail Cloud</span>
+      </div>
+    </div>
+
+    <!-- Menus: Archivo, Transformaciones, Vistas, SQLite, Tesis -->
+    <div class="md-menu-bar">
+      <div class="md-menu-dropdown">
+        <button class="md-menu-trigger">Archivo</button>
+        <div class="md-dropdown-content">
+                    <div class="md-menu-item" id="menu-open-examples">✨ Ejemplos de Proyectos (Manual UWE Sevilla)...</div>
+          <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-menu-item" id="menu-open-pdf" style="text-decoration:none;color:inherit;display:block;">📄 Ver Manual Oficial PDF (Nora Koch, Sevilla 2010) ↗</a>
+          <div class="md-menu-item" id="menu-new-blank">📄 Nuevo Proyecto en Blanco</div>
+          <div class="md-menu-divider"></div>
+          <div class="md-menu-item" id="menu-save-cloud">💾 Guardar Proyecto en SQLite (Nube)</div>
+          <div class="md-menu-divider"></div>
+          <div class="md-menu-item" id="menu-export-svg">🖼️ Exportar Diagrama Vectorial (SVG)</div>
+          <div class="md-menu-item" id="menu-export-png">📷 Exportar Diagrama Alta Resolución (PNG 300 DPI)</div>
+          <div class="md-menu-item" id="menu-export-xml">📋 Descargar Snapshot XML / XMI</div>
+        </div>
+      </div>
+
+      <div class="md-menu-dropdown">
+        <button class="md-menu-trigger">Transformaciones UWE (M2M)</button>
+        <div class="md-dropdown-content">
+          <div class="md-menu-item" data-trans-key="CONTENT_2_NAVIGATION">
+            🔄 Content -> Navigation
+          </div>
+          <div class="md-menu-item" data-trans-key="NAVIGATION_2_PRESENTATION">
+            🔄 Navigation -> Presentation (Pages + UI Properties)
+          </div>
+          <div class="md-menu-item" data-trans-key="NAVIGATION_2_PROCESS_STRUCTURE">
+            🔄 Navigation -> Process Structure
+          </div>
+          <div class="md-menu-item" data-trans-key="NAVIGATION_2_PROCESS_FLOWS">
+            🔄 Navigation -> Process Flows (Workflows)
+          </div>
+          <div class="md-menu-divider"></div>
+          <div class="md-menu-item" data-trans-key="REQUIREMENTS_2_CONTENT">
+            🎯 Requirements -> Content
+          </div>
+          <div class="md-menu-item" data-trans-key="REQUIREMENTS_2_NAVIGATION">
+            🎯 Requirements -> Navigation
+          </div>
+          <div class="md-menu-item" data-trans-key="REQUIREMENTS_2_PRESENTATION">
+            🎯 Requirements -> Presentation
+          </div>
+          <div class="md-menu-item" data-trans-key="REQUIREMENTS_2_PROCESS">
+            🎯 Requirements -> Process Flow
+          </div>
+        </div>
+      </div>
+
+      <div class="md-menu-dropdown">
+        <button class="md-menu-trigger">Vistas del Modelo</button>
+        <div class="md-dropdown-content">
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=visual]').click()">🎨 Vista Visual MagicDraw 18.0</div>
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=split]').click()">⚡ Vista Dividida (Visual + XML en vivo)</div>
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=xml]').click()">💻 Editor XML / XMI Completo</div>
+        </div>
+      </div>
+
+      <div class="md-menu-dropdown">
+        <button class="md-menu-trigger">Base de Datos SQLite</button>
+        <div class="md-dropdown-content">
+          <div class="md-menu-item" id="menu-inspect-sqlite">🔍 Inspeccionar Tablas Relacionales SQLite</div>
+        </div>
+      </div>
+
+      <div class="md-menu-dropdown">
+        <button class="md-menu-trigger">Ayuda / Tesis UWE</button>
+        <div class="md-dropdown-content">
+          <div class="md-menu-item" onclick="alert('Metodología UWE 3.0 (UML-based Web Engineering)\nDesarrollada por LMU Munich.\nSoporta modelado sistemático de Requisitos, Contenido, Navegación, Presentación, Procesos y Seguridad.')">📖 Metodología UWE 3.0</div>
+          <div class="md-menu-item" onclick="alert('MagicUWE 1.5.0 Web recrea al 100% el plugin original de MagicDraw 18.0 con su paleta de colores (#FFE2C6 fill, #99795C border, #280000 tags), 154 iconos originales PNG y transformaciones modelo a modelo.')">ℹ️ Acerca de MagicUWE Web</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Toolbar -->
+    <div class="md-main-toolbar">
+      <!-- Left: Project Selection -->
+      <div class="tb-group">
+        <span style="font-weight:bold">Proyecto:</span>
+        <select id="project-selector" class="md-input" style="min-width: 210px;"></select>
+        <button class="md-btn md-btn-primary" id="btn-save-cloud" title="Guardar cambios del modelo en SQLite">
+          💾 Guardar
+        </button>
+        <button class="md-btn" id="btn-examples-quick" title="Explorar Ejemplos del Manual UWE o Crear en Blanco">
+          ✨ Ejemplos
+        </button>
+        <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-btn" id="btn-pdf-manual" title="Descargar / Ver PDF del Manual UWE Sevilla 2010 (Dra. Nora Koch)" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+          📄 Manual PDF
+        </a>
+
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <!-- Center: View Mode Switcher -->
+      <div class="tb-group">
+        <button class="md-btn view-mode-btn active" data-mode="visual" title="Lienzo de Diagrama Visual">
+          🎨 Vista Visual
+        </button>
+        <button class="md-btn view-mode-btn" data-mode="split" title="Visual y XML sincronizados lado a lado">
+          ⚡ Dividida (Visual + XML)
+        </button>
+        <button class="md-btn view-mode-btn" data-mode="xml" title="Editor XML / XMI completo">
+          💻 Código XML
+        </button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <!-- Canva-style Layers (Capas) & Grouping Controls -->
+      <div class="tb-group">
+        <span class="tb-group-title">Capas:</span>
+        <button class="md-btn md-btn-sm" id="btn-bring-front" title="Traer al Frente (Capa superior - Canva)">🔼 Frente</button>
+        <button class="md-btn md-btn-sm" id="btn-bring-forward" title="Subir una capa (Adelante)">⬆️ Adelante</button>
+        <button class="md-btn md-btn-sm" id="btn-send-backward" title="Bajar una capa (Atrás)">⬇️ Atrás</button>
+        <button class="md-btn md-btn-sm" id="btn-send-back" title="Enviar al Fondo (Capa inferior - Canva)">🔽 Fondo</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <div class="tb-group">
+        <span class="tb-group-title">Grupo:</span>
+        <button class="md-btn md-btn-sm" id="btn-group-nodes" title="Agrupar elementos seleccionados para mover juntos (Ctrl+G)">🔗 Agrupar</button>
+        <button class="md-btn md-btn-sm" id="btn-ungroup-nodes" title="Desagrupar elementos (Ctrl+Shift+G)">🔓 Desagrupar</button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <!-- Right: Export & SQLite Tools -->
+      <div class="tb-group">
+        <button class="md-btn" id="btn-export-svg" title="Exportar diagrama actual en SVG vectorial para tesis">
+          SVG
+        </button>
+        <button class="md-btn" id="btn-export-png" title="Exportar diagrama en PNG 300 DPI de alta resolución">
+          PNG 300DPI
+        </button>
+        <button class="md-btn" id="btn-sqlite-inspect" title="Ver estructura de tablas SQLite">
+          BD SQLite
+        </button>
+      </div>
+
+      <div class="tb-sep"></div>
+
+      <!-- Auth Area: Google/Gmail or User Badge -->
+      <div class="tb-group" id="user-auth-area"></div>
+    </div>
+  </header>
+
+  <!-- Main 3-Column Layout -->
+  <main class="md-main-layout">
+    <!-- Left Dock: Containment Tree -->
+    <aside class="md-sidebar-left">
+      <div class="dock-title">
+        <span>Containment Tree (UWE Models)</span>
+        <div style="margin-left:auto; display:flex; gap:3px;">
+          <button class="md-btn md-btn-sm" id="btn-tree-expand-all" style="padding:1px 5px; font-size:10px;" title="Expandir todo el árbol de paquetes">⊞ Todo</button>
+          <button class="md-btn md-btn-sm" id="btn-tree-collapse-all" style="padding:1px 5px; font-size:10px;" title="Colapsar todo el árbol de paquetes">⊟ Todo</button>
+        </div>
+      </div>
+      <div class="tree-scroll-container" id="containment-tree"></div>
+    </aside>
+
+    <!-- Center Dock: Workspace (Diagrams, Canvas & XML Editor) -->
+    <section class="workspace-center" id="main-workspace-split">
+      <!-- Diagram Tabs Bar -->
+      <div class="md-tabs-bar" id="diagram-tabs"></div>
+
+      <div class="workspace-views-split">
+        <!-- Visual Canvas Pane -->
+        <div class="visual-pane" id="visual-canvas-pane">
+          <!-- Contextual Palette -->
+          <nav class="canvas-palette" id="diagram-palette"></nav>
+
+          <!-- Interactive Canvas -->
+          <div class="canvas-container" id="canvas-container">
+            <div class="canvas-surface" id="canvas-surface">
+              <!-- MagicDraw 18 Diagram Frame Header: package Model [ Icon Diagram ] -->
+              <div class="md-diagram-frame-header" id="md-diagram-frame-header"></div>
+              <!-- SVG Layer for UML/UWE Edges -->
+              <svg class="canvas-edges-svg" id="canvas-edges-svg"></svg>
+              <!-- Layer for UML/UWE Nodes -->
+              <div class="canvas-nodes-layer" id="canvas-nodes-layer"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bi-directional XML Editor Pane -->
+        <div class="xml-pane" id="xml-editor-pane">
+          <div class="xml-header-bar">
+            <span class="xml-status-badge synced" id="xml-sync-status">✓ Sincronizado con el Diagrama Visual</span>
+            <div style="display:flex;gap:4px">
+              <button class="md-btn md-btn-primary md-btn-sm" id="btn-apply-xml" title="Parsea el código XML y actualiza el diagrama y árbol de contención">
+                Aplicar XML al Modelo
+              </button>
+              <button class="md-btn md-btn-sm" id="btn-download-xml" title="Descargar como archivo .uwe.xml">
+                Descargar XML
+              </button>
+            </div>
+          </div>
+          <textarea class="xml-textarea" id="xml-editor-textarea" spellcheck="false" placeholder="Cargando representación XML del modelo..."></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Dock: Properties & Tagged Values Inspector -->
+    <aside class="md-sidebar-right">
+      <div class="dock-title">
+        <span>Specification / Tagged Values</span>
+      </div>
+      <div id="properties-inspector"></div>
+    </aside>
+  </main>
+
+  <!-- Bottom Status Bar -->
+  <footer class="md-status-bar">
+    <div class="sb-left">
+      <span id="status-message">MagicUWE 1.5.0 Web Listo — Perfil UWE 3.0 cargado.</span>
+    </div>
+    <div>
+      <span>UWE Profile v3.0 | MagicDraw 18.0 Symbol Style | EPL-1.0</span>
+    </div>
+  </footer>
+
+  <!-- Hidden SQLite File Input -->
+  <input type="file" id="hidden-sqlite-input" accept=".sqlite,.db" style="display:none" />
+
+  <!-- Global Modal Overlay -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal-window">
+      <div class="modal-header">
+        <div id="modal-title" style="display:flex;align-items:center;gap:6px"></div>
+        <button class="modal-close-btn" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Google Identity Services (GIS) for Google Sign-In & One Tap -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- Application Scripts (Versioned for Cache Invalidation) -->
+  <script src="/assets/uwe-assets.js?v=1.5.8"></script>
+  <script src="/assets/uwe-engine.js?v=1.5.8"></script>
+  <script src="/assets/app.js?v=1.5.8"></script>
+
+  <script>
+    // Wire dropdown menu shortcuts
+    document.getElementById('menu-save-cloud').onclick = () => document.getElementById('btn-save-cloud').click();
+    document.getElementById('menu-export-svg').onclick = () => document.getElementById('btn-export-svg').click();
+    document.getElementById('menu-export-png').onclick = () => document.getElementById('btn-export-png').click();
+    document.getElementById('menu-inspect-sqlite').onclick = () => document.getElementById('btn-sqlite-inspect').click();
+    document.getElementById('menu-export-xml').onclick = () => document.getElementById('btn-download-xml').click();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,14 @@
+{
+  "name": "magicuwe-web",
+  "version": "1.5.0",
+  "description": "Aplicación Web de Modelado UWE (UML-based Web Engineering) con fidelidad visual 1:1 a MagicDraw 18.0 + MagicUWE (LMU Munich)",
+  "license": "EPL-1.0",
+  "engines": {
+    "node": ">=22.x"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs"
+  }
+}
+

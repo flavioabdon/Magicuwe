@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<resourceDescriptor
+ critical="false"
+ date="2010-12-10"
+ description="MagicUWE has been developed for the computer aided design of Web applications using the UML-based Web Engineering (UWE) methodology."
+ group=""
+ homePage="http://uwe.pst.ifi.lmu.de/toolMagicUWE.html"
+ id="2216"
+ mdVersionMax="higher"
+ mdVersionMin="18.0"
+ name="MagicUWE"
+ type="Plugin">
+  <version
+   human="1.5.0"
+   internal="1.5.0" />
+
+  <provider
+   name="LMU - Ludwig-Maximilians-Universität München. Institute of Programming and Software Engineering." />
+
+  <edition>Personal</edition>
+  <edition>Standard</edition>
+  <edition>Enterprise</edition>
+  <edition>Reader</edition>
+  <edition>Professional Java</edition>
+  <edition>OptimalJ</edition>
+  <edition>Professional C++</edition>
+  <edition>Professional C#</edition>
+  <edition>Professional ArcStyler</edition>
+  <edition>Professional EFFS ArcStyler</edition>
+  <edition>Architect</edition>
+
+  <installation>
+    <file
+     from="plugins/de.lmu.ifi.pst.uwe.MagicUWE/*.*"
+     to="plugins/de.lmu.ifi.pst.uwe.MagicUWE/*.*" />
+     
+    <file
+     from="profiles/UWE Profile.mdzip"
+     to="profiles/UWE Profile.mdzip" />
+     
+    <file
+     from="profiles/UWE Profile.html"
+     to="profiles/UWE Profile.html" />
+     
+    <file
+     from="manual/MagicUWE UserGuide.pdf"
+     to="manual/MagicUWE UserGuide.pdf" />
+
+  </installation>
+</resourceDescriptor>

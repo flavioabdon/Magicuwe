@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin
+	id="MagicUWE"
+	name="MagicUWE"
+	version="1.5.0"
+	provider-name="University of Munich (LMU)"
+	class="magicUWE.core.PluginManager">
+	<requires>
+		<required-plugin id="com.nomagic.magicdraw.emfuml2xmi.v3" version="1.0" />
+	</requires>
+	<requires>
+	   <api version="1.0"/>
+	</requires>
+	<runtime>
+	   <library name="MagicUWE.jar"/>
+	</runtime>
+</plugin>
