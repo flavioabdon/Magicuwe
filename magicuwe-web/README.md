@@ -162,9 +162,35 @@ El modelo UWE y sus diagramas se almacenan y sincronizan automáticamente en la 
 
 ## 🔑 Autenticación Multi-usuario y Gmail
 
-- **Acceso Rápido con Gmail / Google (`POST /api/auth/google`):** Permite a estudiantes e investigadores acceder sin necesidad de recordar contraseñas y sincronizar sus proyectos en la nube.
-- **Cuentas Académicas por Correo / Contraseña (`/api/auth/register`, `/api/auth/login`):** Para entornos cerrados o institucionales.
-- Cada usuario tiene un espacio de trabajo aislado donde puede crear y gestionar múltiples proyectos de tesis.
+La aplicación cuenta con un sistema completo de autenticación que se solicita en la primera visita del usuario o cuando no hay una sesión activa:
+
+- **Modal "Iniciar Sesión / Crear Cuenta (Multi-usuario y Gmail)":**
+  - **Pestaña 1 - Iniciar Sesión:** Acceso rápido mediante correo electrónico o nombre de usuario y contraseña (`POST /api/auth/login`).
+  - **Pestaña 2 - Registrarse:** Creación de cuenta con nombre completo, correo/usuario, contraseña y confirmación (`POST /api/auth/register`).
+  - **Pestaña 3 - Google / Gmail:**
+    - **Botón Oficial de Google Identity Services:** Si se configura `GOOGLE_CLIENT_ID` en el archivo `.env`, se activa el botón oficial de Google One Tap / OAuth.
+    - **Acceso Directo con Gmail:** Permite ingresar ingresando la dirección `@gmail.com` de forma instantánea sin necesidad de configuración externa.
+  - **Modo Invitado:** Opción para continuar y explorar la herramienta en modo local en el navegador sin guardar en la base de datos de la nube.
+
+### ⚙️ Configuración del Token / Client ID de Google en `.env`
+
+El proyecto incluye un archivo `.env` en la raíz de `magicuwe-web/`:
+```env
+PORT=3456
+MAGICUWE_SECRET=magicuwe-lmu-thesis-secret-key-2026
+
+# Credenciales de Google OAuth 2.0 (Google Identity Services)
+GOOGLE_CLIENT_ID=tu-id-de-cliente.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=tu-client-secret
+```
+
+**Para generar el ID de cliente de Google:**
+1. Ingresa a la [Consola de Google Cloud](https://console.cloud.google.com/apis/credentials).
+2. Haz clic en **Crear credenciales** > **ID de cliente de OAuth**.
+3. Selecciona Tipo de aplicación: **Aplicación Web**.
+4. En **Orígenes de JavaScript autorizados**, añade: `http://localhost:3456`.
+5. Copia el **ID de cliente** generado y pégalo en la variable `GOOGLE_CLIENT_ID` de tu archivo `.env`.
+6. Reinicia el servidor local (`npm start`). El botón oficial de Google aparecerá automáticamente.
 
 ---
 
@@ -178,17 +204,44 @@ El modelo UWE y sus diagramas se almacenan y sincronizan automáticamente en la 
 ## 🚀 Guía de Ejecución Local y Despliegue
 
 ### Requisitos Previos
-- Node.js 18+ (Node.js 22 o 25 recomendado para soporte nativo de `node:sqlite`).
+- **Node.js 18+** (Node.js 20, 22 o 25 recomendado para soporte nativo de `node:sqlite`).
+- **Sin dependencias externas:** No requiere ejecutar `npm install` (utiliza bibliotecas estándar de Node.js).
 
-### Ejecución Local
-```bash
-# 1. Clonar o acceder al directorio del proyecto
-cd magicuwe-web
+### Pasos para Levantar el Servidor Local
 
-# 2. Iniciar el servidor web y API
-npm start
-```
-Abrir en el navegador: **`http://localhost:3456`**
+1. **Acceder a la carpeta del proyecto:**
+   ```bash
+   cd magicuwe-web
+   ```
+
+2. **(Opcional) Configurar variables de entorno:**
+   ```bash
+   cp .env.example .env
+   ```
+   *Permite personalizar el puerto (`PORT=3456`) y credenciales de Google OAuth.*
+
+3. **Iniciar el servidor:**
+   ```bash
+   # Opción estándar
+   npm start
+
+   # O ejecución directa con Node.js
+   node server.mjs
+
+   # En modo desarrollo
+   npm run dev
+
+   # En un puerto específico
+   PORT=8080 npm start
+   ```
+
+4. **Acceder a la aplicación:**
+   - **Aplicación Web UWE:** [http://localhost:3456](http://localhost:3456)
+   - **Verificación de API (Healthcheck):** [http://localhost:3456/api/health](http://localhost:3456/api/health)
+   - **Base de datos SQLite:** Se genera automáticamente en `data/magicuwe.sqlite`
+
+5. **Detener el servidor:**
+   Presiona `Ctrl + C` en la terminal.
 
 ### Despliegue en Vercel
 El proyecto está preconfigurado con `vercel.json` y funciones Serverless en `/api`:

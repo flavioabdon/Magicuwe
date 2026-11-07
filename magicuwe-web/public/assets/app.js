@@ -473,6 +473,52 @@
     return getIcon('insert/UWEinsertClass.png');
   }
 
+  // ==================== MOUSE-ATTACHED TOOL FOLLOWER (GHOST PREVIEW) ====================
+  function getToolFollowerEl() {
+    let el = document.getElementById('cursor-tool-follower');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'cursor-tool-follower';
+      el.className = 'cursor-tool-follower';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  function showToolFollower(tool, clientX, clientY) {
+    if (!tool || tool.type === 'SELECT') {
+      hideToolFollower();
+      return;
+    }
+    const el = getToolFollowerEl();
+    const iconUrl = getToolIcon(tool);
+    const badgeText = tool.stereotype ? `«${tool.stereotype}»` : (tool.label || tool.umlType);
+    el.innerHTML = `
+      <img src="${iconUrl}" width="16" height="16" alt="" />
+      <span>${escapeHtml(badgeText)}</span>
+    `;
+    if (typeof clientX === 'number' && typeof clientY === 'number') {
+      el.style.left = `${clientX}px`;
+      el.style.top = `${clientY}px`;
+    }
+    el.style.display = 'flex';
+  }
+
+  function updateToolFollower(clientX, clientY) {
+    const el = document.getElementById('cursor-tool-follower');
+    if (el && el.style.display !== 'none') {
+      el.style.left = `${clientX}px`;
+      el.style.top = `${clientY}px`;
+    }
+  }
+
+  function hideToolFollower() {
+    const el = document.getElementById('cursor-tool-follower');
+    if (el) {
+      el.style.display = 'none';
+    }
+  }
+
   function placeNewNodeOnDiagram(tool, x, y) {
     const dg = getActiveDiagram();
     if (!dg) return;
@@ -513,6 +559,7 @@
     state.selectedNodeIds = new Set([newElId]);
     state.selectedEdgeId = null;
     state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+    hideToolFollower();
     showToast(`Elemento «${newEl.stereotype || newEl.umlType}» añadido al diagrama`, 'success');
     renderAll();
   }
@@ -570,23 +617,38 @@
       const tool = dgDef.tools.find(t => t.id === toolId);
       if (!tool) return;
 
-      btn.onclick = () => {
+      btn.onclick = (ev) => {
+        if (state.activeTool && state.activeTool.id === tool.id) {
+          state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+          state.pendingEdgeSourceId = null;
+          hideToolFollower();
+          setStatus('Modo Selección activo (Arrastra nodos, haz clic para inspeccionar o editar Tagged Values)');
+          renderPalette();
+          renderCanvas();
+          return;
+        }
         state.activeTool = tool;
         state.pendingEdgeSourceId = null;
         if (tool.type === 'NODE') {
-          setStatus(`Herramienta activa: ${tool.label} — Arrastra al lienzo o haz clic donde desees colocar «${tool.stereotype || tool.umlType}»`);
+          setStatus(`Herramienta activa: ${tool.label} — Haz clic en el lienzo donde desees colocar «${tool.stereotype || tool.umlType}»`);
+          showToolFollower(tool, ev.clientX, ev.clientY);
         } else if (tool.type === 'NESTED_PROPERTY') {
-          setStatus(`Herramienta activa: ${tool.label} — Arrastra o haz clic dentro de una «presentationPage» o «presentationGroup»`);
+          setStatus(`Herramienta activa: ${tool.label} — Haz clic dentro de una «presentationPage» o «presentationGroup»`);
+          showToolFollower(tool, ev.clientX, ev.clientY);
         } else if (tool.type === 'EDGE') {
           setStatus(`Herramienta activa: ${tool.label} — Haz clic en el nodo origen y luego en el nodo destino`);
+          showToolFollower(tool, ev.clientX, ev.clientY);
         } else {
           setStatus('Modo Selección activo (Arrastra nodos, haz clic para inspeccionar o editar Tagged Values)');
+          hideToolFollower();
         }
         renderPalette();
+        renderCanvas();
       };
 
       if (tool.type === 'NODE' || tool.type === 'NESTED_PROPERTY') {
         btn.ondragstart = (ev) => {
+          hideToolFollower();
           state.draggedPaletteTool = tool;
           ev.dataTransfer.setData('text/plain', tool.id);
           ev.dataTransfer.effectAllowed = 'copy';
@@ -607,7 +669,16 @@
     const headerFrame = document.getElementById('md-diagram-frame-header');
     const nodesLayer = document.getElementById('canvas-nodes-layer');
     const edgesSvg = document.getElementById('canvas-edges-svg');
+    const canvasSurface = document.getElementById('canvas-surface');
     if (!dg || !nodesLayer || !edgesSvg) return;
+
+    if (canvasSurface) {
+      if (state.activeTool && state.activeTool.type && state.activeTool.type !== 'SELECT') {
+        canvasSurface.classList.add('tool-active');
+      } else {
+        canvasSurface.classList.remove('tool-active');
+      }
+    }
 
     const dgDef = ENGINE.DIAGRAM_TYPES[dg.diagramType] || ENGINE.DIAGRAM_TYPES.CONTENT;
     const pkg = state.model.packages.find(p => p.id === dg.packageId);
@@ -974,6 +1045,7 @@
         state.selectedNodeIds = new Set([el.id]);
         state.selectedNestedPropIdx = el.nestedProperties.length - 1;
         state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+        hideToolFollower();
         showToast(`Propiedad «${el.nestedProperties[state.selectedNestedPropIdx].stereotype}» anidada en ${el.name}`, 'success');
         renderAll();
         return;
@@ -984,6 +1056,7 @@
         if (!state.pendingEdgeSourceId) {
           state.pendingEdgeSourceId = el.id;
           setStatus(`Origen seleccionado: ${el.name}. Ahora haz clic en el elemento destino.`);
+          showToolFollower({ ...state.activeTool, label: 'Destino: ' + state.activeTool.label }, ev.clientX, ev.clientY);
           renderCanvas();
         } else {
           const srcId = state.pendingEdgeSourceId;
@@ -1007,6 +1080,7 @@
           state.selectedNodeId = null;
           if (state.selectedNodeIds) state.selectedNodeIds.clear();
           state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+          hideToolFollower();
           showToast(`Relación ${newRel.stereotype ? '«' + newRel.stereotype + '»' : newRel.umlType} creada`, 'success');
           renderAll();
         }
@@ -2973,11 +3047,17 @@
         state.selectedEdgeId = null;
         state.selectedNestedPropIdx = null;
         state.pendingEdgeSourceId = null;
+        hideToolFollower();
         renderAll();
       };
     }
 
     window.addEventListener('mousemove', (ev) => {
+      // Keep active tool icon attached to cursor until placed on canvas
+      if (state.activeTool && state.activeTool.type && state.activeTool.type !== 'SELECT') {
+        updateToolFollower(ev.clientX, ev.clientY);
+      }
+
       const dg = getActiveDiagram();
       if (!dg) return;
       if (state.dragging) {
@@ -3043,7 +3123,18 @@
       } else if (ev.key === 'Escape') {
         state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
         state.pendingEdgeSourceId = null;
+        hideToolFollower();
         renderAll();
+      }
+    });
+
+    document.addEventListener('mouseleave', () => {
+      hideToolFollower();
+    });
+
+    document.addEventListener('mouseenter', (ev) => {
+      if (state.activeTool && state.activeTool.type && state.activeTool.type !== 'SELECT') {
+        showToolFollower(state.activeTool, ev.clientX, ev.clientY);
       }
     });
 

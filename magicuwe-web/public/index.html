@@ -503,6 +503,43 @@
       display: none;
     }
 
+    /* Floating Tool Cursor Follower (attached to mouse when a tool is active) */
+    .cursor-tool-follower {
+      position: fixed;
+      pointer-events: none;
+      z-index: 100000;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1.5px solid #316AC5;
+      border-radius: 4px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+      transform: translate(14px, 14px);
+      font-size: 11px;
+      font-weight: bold;
+      color: #0E3A73;
+      white-space: nowrap;
+      user-select: none;
+      backdrop-filter: blur(2px);
+    }
+
+    .cursor-tool-follower img {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+    }
+
+    .canvas-surface.tool-active {
+      cursor: crosshair !important;
+    }
+
+    .canvas-surface.tool-active .md-node {
+      cursor: crosshair;
+    }
+
     /* Diagram Canvas */
     .canvas-container {
       flex: 1;

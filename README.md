@@ -120,14 +120,64 @@ MODO A: Plugin para MagicDraw UML (Entorno Clasico)
 
 MODO B: Aplicacion Web de Modelado UWE (magicuwe-web)
 ----------------------------------------------------
-1. Abra una consola de comandos en la ruta de la aplicacion:
-     cd magicuwe-web
-2. Si requiere ajustar variables de configuracion de puerto o credenciales:
-     cp .env.example .env
-3. Inicie el servidor local:
-     node server.mjs
-4. Acceda desde su navegador web al puerto predeterminado:
-     http://localhost:3456
+
+El subsistema web esta construido utilizando la biblioteca estandar de Node.js
+y modulos nativos del sistema, por lo que NO requiere instalar dependencias
+externas con 'npm install'. La puesta en marcha es inmediata y autocontenida.
+
+Paso 1: Comprobar el interprete de Node.js
+  Asegurese de disponer de Node.js version 18.x o superior (se sugiere
+  Node.js 20.x o 22.x para persistencia nativa con 'node:sqlite'):
+    $ node -v
+
+Paso 2: Acceder al directorio de la aplicacion web
+    $ cd magicuwe-web
+
+Paso 3: (Opcional) Configuracion de variables de entorno
+  Si desea configurar un puerto alternativo, claves secretas o autenticacion:
+    $ cp .env.example .env
+
+  Parametros principales en el archivo .env:
+    PORT=3456
+    MAGICUWE_SECRET=magicuwe-lmu-thesis-secret-key-2026
+    GOOGLE_CLIENT_ID=tu-id-cliente.apps.googleusercontent.com
+    GOOGLE_CLIENT_SECRET=tu-secreto-cliente
+
+Paso 4: Levantar el servidor HTTP y servicios REST
+  Inicie el proceso del servidor mediante cualquiera de estas opciones:
+
+  * Opcion 1 (Estandar via npm):
+      $ npm start
+
+  * Opcion 2 (Ejecucion directa con Node.js):
+      $ node server.mjs
+
+  * Opcion 3 (Modo desarrollo):
+      $ npm run dev
+
+  * Opcion 4 (Especificar puerto en linea de comandos):
+      $ PORT=8080 node server.mjs
+
+  Mensaje de confirmacion en consola:
+    [MagicUWE] Variables de entorno cargadas desde .env
+    MagicUWE Web Server running at http://localhost:3456
+
+Paso 5: Acceso desde el navegador
+  Abra su navegador de preferencia e ingrese a:
+    http://localhost:3456
+
+Paso 6: Puntos de enlace y almacenamiento
+  * Entorno de modelado UWE:      http://localhost:3456
+  * Comprobacion de estado (API): http://localhost:3456/api/health
+  * Base de datos SQLite:         Se crea de forma automatica en 'data/magicuwe.sqlite'
+
+Paso 7: Detener el servidor
+  Para finalizar la ejecucion presione en la consola:
+    Ctrl + C
+
+Paso 8: Ejecucion como servicio en segundo plano (Unix/Linux)
+  Para mantener el servidor activo tras cerrar la sesion de terminal:
+    $ nohup node server.mjs > server.log 2>&1 &
 
 
 -------------------------------------------------------------------------------
