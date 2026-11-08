@@ -176,8 +176,17 @@
     }
   };
 
-  // Normalize DIAGRAM_TYPES tools: ensure uppercase type ('NODE' | 'EDGE' | 'NESTED_PROPERTY'), unique tool id, and remove shortcuts per user request
-  Object.values(DIAGRAM_TYPES).forEach(dt => {
+  // Normalize DIAGRAM_TYPES: ensure id, key, icon, packageStereotype, shortLabel, and uppercase tool types
+  Object.entries(DIAGRAM_TYPES).forEach(([k, dt]) => {
+    dt.id = dt.id || k;
+    dt.key = dt.key || k;
+    dt.icon = dt.icon || dt.iconKey;
+    dt.iconKey = dt.iconKey || dt.icon;
+    dt.packageStereotype = dt.packageStereotype || dt.pkgStereotype;
+    dt.pkgStereotype = dt.pkgStereotype || dt.packageStereotype;
+    dt.shortLabel = dt.shortLabel || dt.defaultPkgName || dt.label;
+    dt.defaultPkgName = dt.defaultPkgName || dt.shortLabel;
+
     dt.tools.forEach((tool, idx) => {
       const rawType = (tool.type || 'node').toLowerCase();
       if (rawType === 'node') tool.type = 'NODE';
@@ -898,7 +907,9 @@
       for (const n of (dg.nodes || [])) {
         const zAttr = n.zIndex ? ` zIndex="${n.zIndex}"` : '';
         const grpAttr = n.groupId ? ` groupId="${escapeXml(n.groupId)}"` : '';
-        lines.push(`        <mdElement elementId="${escapeXml(n.elementId)}" x="${Math.round(n.x)}" y="${Math.round(n.y)}" width="${Math.round(n.width || 165)}" height="${Math.round(n.height || 85)}"${zAttr}${grpAttr} />`);
+        const nameXAttr = (n.nameOffsetX !== undefined && n.nameOffsetX !== 0) ? ` nameOffsetX="${n.nameOffsetX}"` : '';
+        const nameYAttr = (n.nameOffsetY !== undefined && n.nameOffsetY !== 0) ? ` nameOffsetY="${n.nameOffsetY}"` : '';
+        lines.push(`        <mdElement elementId="${escapeXml(n.elementId)}" x="${Math.round(n.x)}" y="${Math.round(n.y)}" width="${Math.round(n.width || 165)}" height="${Math.round(n.height || 85)}"${zAttr}${grpAttr}${nameXAttr}${nameYAttr} />`);
       }
       for (const edgeId of (dg.edges || [])) {
         lines.push(`        <mdEdge relationshipId="${escapeXml(edgeId)}" />`);
@@ -1054,7 +1065,9 @@
             width: Number(ch.getAttribute('width') || 165),
             height: Number(ch.getAttribute('height') || 85),
             zIndex: Number(ch.getAttribute('zIndex') || 1),
-            groupId: ch.getAttribute('groupId') || null
+            groupId: ch.getAttribute('groupId') || null,
+            nameOffsetX: ch.hasAttribute('nameOffsetX') ? Number(ch.getAttribute('nameOffsetX')) : 0,
+            nameOffsetY: ch.hasAttribute('nameOffsetY') ? Number(ch.getAttribute('nameOffsetY')) : undefined
           });
         } else if (ch.localName === 'mdEdge') {
           const eid = ch.getAttribute('relationshipId');

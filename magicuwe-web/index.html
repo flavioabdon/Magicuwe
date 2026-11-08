@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MagicUWE Web 1.5.0 — Entorno de Modelado UWE 3.0 para Tesis Universitaria</title>
+  <title>MagicUWE Web 1.5.0 — Entorno de Modelado UWE 3.0</title>
   <style>
     /* ==================== MAGICDRAW 18.0 THEME & SYSTEM STYLES ==================== */
     :root {
@@ -21,7 +22,12 @@
       --md-text: #1F1F1F;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       font-family: Arial, Helvetica, sans-serif;
       font-size: 11.5px;
@@ -96,7 +102,8 @@
       border-radius: 2px;
     }
 
-    .md-menu-trigger:hover, .md-menu-dropdown:hover .md-menu-trigger {
+    .md-menu-trigger:hover,
+    .md-menu-dropdown:hover .md-menu-trigger {
       background: #B6BDD2;
       border: 1px solid #316AC5;
       color: #000;
@@ -206,7 +213,7 @@
       border: 1px solid #C4C4C4;
       color: #374151;
       font-weight: bold;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
     }
 
     .md-btn-google:hover {
@@ -230,7 +237,8 @@
       justify-content: center;
     }
 
-    .md-input, select.md-input {
+    .md-input,
+    select.md-input {
       font-family: Arial, sans-serif;
       font-size: 11px;
       border: 1px solid #7F9DB9;
@@ -327,7 +335,8 @@
       background: #EAEFF8;
     }
 
-    .tree-node.active, .tree-node.selected {
+    .tree-node.active,
+    .tree-node.selected {
       background: #316AC5;
       color: #FFFFFF;
     }
@@ -343,7 +352,8 @@
       font-size: 10px;
     }
 
-    .tree-node.active .tree-stereo, .tree-node.selected .tree-stereo {
+    .tree-node.active .tree-stereo,
+    .tree-node.selected .tree-stereo {
       color: #E2E8F0;
     }
 
@@ -503,6 +513,99 @@
       display: none;
     }
 
+    /* Palette Accordion (Collapsible Other Diagram Toolbars) */
+    .palette-header-main {
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .palette-header-main:hover {
+      background: #D8D4C2;
+    }
+
+    .palette-header-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-accordion-section-title {
+      font-size: 9.5px;
+      color: #555245;
+      font-weight: bold;
+      padding: 6px 6px 4px 6px;
+      text-transform: uppercase;
+      border-top: 1px solid #CCC8B8;
+      border-bottom: 1px solid #D8D4C4;
+      background: #E4E1D2;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .palette-accordions-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .palette-accordion-group {
+      border-bottom: 1px solid #DDD9C9;
+    }
+
+    .palette-accordion-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 6px;
+      background: #EBE8DC;
+      cursor: pointer;
+      user-select: none;
+      font-size: 10px;
+      font-weight: 600;
+      color: #333333;
+      transition: background 0.12s ease;
+    }
+
+    .palette-accordion-header:hover {
+      background: #FFFFFF;
+      color: #0E3A73;
+    }
+
+    .palette-accordion-header.expanded {
+      background: #DDD9C7;
+      color: #111111;
+      font-weight: bold;
+      border-bottom: 1px solid #C4C0AE;
+    }
+
+    .palette-accordion-caret {
+      font-size: 8px;
+      color: #666666;
+      width: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .palette-accordion-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .palette-accordion-body {
+      padding: 3px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      background: #FAF9F5;
+    }
+
     /* Floating Tool Cursor Follower (attached to mouse when a tool is active) */
     .cursor-tool-follower {
       position: fixed;
@@ -546,7 +649,7 @@
       position: relative;
       background: #FFFFFF;
       overflow: auto;
-      box-shadow: inset 1px 1px 3px rgba(0,0,0,0.1);
+      box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.1);
     }
 
     .canvas-surface {
@@ -577,15 +680,29 @@
       gap: 6px;
       clip-path: polygon(0 0, 100% 0, 100% 70%, calc(100% - 12px) 100%, 0 100%);
       padding-right: 18px;
-      box-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+      box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
       z-index: 1;
       pointer-events: none;
     }
 
-    .frame-kw { font-weight: bold; color: #1F2937; }
-    .frame-pkg { color: #374151; }
-    .frame-bracket { color: #6B7280; font-weight: bold; }
-    .frame-dg-name { font-weight: bold; color: #111827; }
+    .frame-kw {
+      font-weight: bold;
+      color: #1F2937;
+    }
+
+    .frame-pkg {
+      color: #374151;
+    }
+
+    .frame-bracket {
+      color: #6B7280;
+      font-weight: bold;
+    }
+
+    .frame-dg-name {
+      font-weight: bold;
+      color: #111827;
+    }
 
     /* SVG Edges Layer */
     .canvas-edges-svg {
@@ -634,8 +751,13 @@
     }
 
     @keyframes pulse {
-      from { outline-color: #DC2626; }
-      to { outline-color: #F87171; }
+      from {
+        outline-color: #DC2626;
+      }
+
+      to {
+        outline-color: #F87171;
+      }
     }
 
     .md-node-header {
@@ -668,6 +790,78 @@
       font-weight: bold;
       font-size: 11.5px;
       color: #000000;
+    }
+
+    /* Movable "Nombre del Elemento" Styles */
+    .md-movable-name {
+      cursor: grab;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 1px 4px;
+      border-radius: 2px;
+      transition: background 0.12s ease, outline 0.12s ease;
+      position: relative;
+    }
+
+    .md-movable-name:hover {
+      background: rgba(255, 255, 255, 0.7);
+      outline: 1px dashed #3B82F6;
+    }
+
+    .md-name-drag-handle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      line-height: 1;
+      color: #0055D4;
+      opacity: 0.3;
+      cursor: grab;
+      user-select: none;
+      transition: opacity 0.12s ease;
+    }
+
+    .md-movable-name:hover .md-name-drag-handle,
+    .md-node.selected .md-name-drag-handle {
+      opacity: 0.95;
+    }
+
+    .md-movable-name:active {
+      cursor: grabbing !important;
+      background: rgba(255, 255, 255, 0.95);
+      outline: 1.5px solid #0055D4;
+      box-shadow: 0 2px 8px rgba(0, 85, 212, 0.35);
+      z-index: 100;
+    }
+
+    .md-name-offset {
+      background: rgba(255, 255, 255, 0.92) !important;
+      border: 1px solid rgba(153, 121, 92, 0.6) !important;
+      box-shadow: 1px 2px 6px rgba(0, 0, 0, 0.16) !important;
+      z-index: 30 !important;
+    }
+
+    .md-node-external-name {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      margin-left: -55px;
+      width: 110px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 10.5px;
+      font-weight: bold;
+      color: #111111;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(153, 121, 92, 0.5);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+      border-radius: 3px;
+      z-index: 15;
     }
 
     .md-tags-list {
@@ -880,14 +1074,17 @@
     .md-node.in-group {
       box-shadow: 0 0 0 1.5px #7C3AED, 2px 2px 6px rgba(124, 58, 237, 0.25);
     }
+
     .md-node.multi-selected {
       outline: 2px dashed #3B82F6 !important;
       box-shadow: 0 0 10px rgba(59, 130, 246, 0.45);
     }
+
     .md-node.selected.in-group {
       outline: 2px solid #7C3AED !important;
       box-shadow: 0 0 12px rgba(124, 58, 237, 0.6);
     }
+
     .md-group-badge {
       position: absolute;
       top: -16px;
@@ -904,6 +1101,7 @@
       pointer-events: none;
       white-space: nowrap;
     }
+
     .md-layer-badge {
       position: absolute;
       top: -16px;
@@ -915,6 +1113,7 @@
       border-radius: 2px 2px 0 0;
       pointer-events: none;
     }
+
     .tb-group-title {
       font-size: 10px;
       font-weight: bold;
@@ -1274,7 +1473,7 @@
       border-top: none;
       padding: 14px 16px;
       border-radius: 0 0 4px 4px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
     }
 
     .auth-tab-pane.active {
@@ -1329,6 +1528,77 @@
       margin-top: 8px;
       padding-top: 8px;
       border-top: 1px solid #D0CEBF;
+    }
+
+    /* Autosave Status Pill on Right of Toolbar */
+    .autosave-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      background: #E8ECEF;
+      border: 1px solid #BAC4CC;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #3C4858;
+      font-weight: 500;
+      user-select: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .autosave-pill:hover {
+      background: #DEE4E8;
+      border-color: #9AA7B2;
+    }
+
+    .autosave-pill.saving {
+      background: #FFF9C4;
+      border-color: #FBC02D;
+      color: #7F6000;
+    }
+
+    .autosave-pill.unsaved {
+      background: #FFF3E0;
+      border-color: #FFB74D;
+      color: #BF360C;
+    }
+
+    .autosave-pill.saved {
+      background: #E8F5E9;
+      border-color: #81C784;
+      color: #1B5E20;
+    }
+
+    .autosave-pill.example-readonly {
+      background: #FFF8E1;
+      border-color: #FFE082;
+      color: #795548;
+      font-weight: 600;
+    }
+
+    .badge-read-only {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 2px 7px;
+      background: #FFF4E5;
+      color: #9C5800;
+      border: 1px solid #ECC999;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: bold;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .autosave-icon {
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .autosave-text {
+      white-space: nowrap;
     }
 
     .auth-link-text {
@@ -1390,8 +1660,15 @@
       background: #EAEFF8;
     }
 
-    .new-dg-opt-title { font-weight: bold; font-size: 11px; }
-    .new-dg-opt-pkg { font-size: 9.5px; color: #666; }
+    .new-dg-opt-title {
+      font-weight: bold;
+      font-size: 11px;
+    }
+
+    .new-dg-opt-pkg {
+      font-size: 9.5px;
+      color: #666;
+    }
 
     .sqlite-inspector {
       display: flex;
@@ -1413,10 +1690,30 @@
       text-align: center;
     }
 
-    .sqlite-card-label { font-size: 9.5px; color: #666; }
-    .sqlite-card-val { font-size: 13px; font-weight: bold; color: #1C4D8F; margin-top: 3px; }
-    .sqlite-desc { font-size: 11px; line-height: 1.4; color: #444; }
-    .sqlite-actions-bar { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    .sqlite-card-label {
+      font-size: 9.5px;
+      color: #666;
+    }
+
+    .sqlite-card-val {
+      font-size: 13px;
+      font-weight: bold;
+      color: #1C4D8F;
+      margin-top: 3px;
+    }
+
+    .sqlite-desc {
+      font-size: 11px;
+      line-height: 1.4;
+      color: #444;
+    }
+
+    .sqlite-actions-bar {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
 
     /* Toasts Container */
     #toast-container {
@@ -1435,24 +1732,46 @@
       padding: 8px 14px;
       border-radius: 4px;
       font-size: 11.5px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
       display: flex;
       align-items: center;
       gap: 8px;
       animation: slideIn 0.2s ease-out;
     }
 
-    .toast-success { background: #065F46; border-left: 4px solid #34D399; }
-    .toast-error { background: #991B1B; border-left: 4px solid #F87171; }
-    .toast-info { background: #1E3A8A; border-left: 4px solid #60A5FA; }
-
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
+    .toast-success {
+      background: #065F46;
+      border-left: 4px solid #34D399;
     }
 
-    .toast-hide { opacity: 0; transform: translateY(10px); transition: 0.3s; }
-  
+    .toast-error {
+      background: #991B1B;
+      border-left: 4px solid #F87171;
+    }
+
+    .toast-info {
+      background: #1E3A8A;
+      border-left: 4px solid #60A5FA;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .toast-hide {
+      opacity: 0;
+      transform: translateY(10px);
+      transition: 0.3s;
+    }
+
     /* Example Projects Welcome Dialog Styles */
     .examples-modal-grid {
       display: flex;
@@ -1462,12 +1781,14 @@
       max-height: 60vh;
       overflow-y: auto;
     }
+
     .examples-header-desc {
       font-size: 12px;
       color: #222;
       margin: 0 0 4px 0;
       line-height: 1.45;
     }
+
     .example-card {
       display: flex;
       gap: 12px;
@@ -1479,20 +1800,24 @@
       transition: all 0.15s ease-in-out;
       user-select: none;
     }
+
     .example-card:hover {
       border-color: #316AC5;
       background: #F4F8FD;
       box-shadow: 0 2px 8px rgba(49, 106, 197, 0.2);
     }
+
     .example-card.selected {
       border-color: #1C4D8F;
       background: #E8F1FC;
       box-shadow: 0 0 0 1px #1C4D8F;
     }
+
     .example-card-radio {
       margin-top: 4px;
       cursor: pointer;
     }
+
     .example-card-icon {
       font-size: 26px;
       min-width: 34px;
@@ -1500,20 +1825,24 @@
       align-items: center;
       justify-content: center;
     }
+
     .example-card-content {
       flex: 1;
     }
+
     .example-card-title-row {
       display: flex;
       align-items: center;
       gap: 8px;
       margin-bottom: 4px;
     }
+
     .example-card-title {
       font-weight: bold;
       font-size: 13px;
       color: #1C4D8F;
     }
+
     .example-badge {
       font-size: 10px;
       padding: 2px 6px;
@@ -1522,22 +1851,26 @@
       color: #3730A3;
       font-weight: 600;
     }
+
     .example-badge.recommended {
       background: #DCFCE7;
       color: #166534;
       border: 1px solid #86EFAC;
     }
+
     .example-card-desc {
       font-size: 11px;
       color: #444;
       line-height: 1.4;
       margin-bottom: 6px;
     }
+
     .example-card-tags {
       display: flex;
       flex-wrap: wrap;
       gap: 5px;
     }
+
     .example-tag {
       font-size: 10px;
       padding: 2px 6px;
@@ -1546,6 +1879,7 @@
       border-radius: 3px;
       color: #475569;
     }
+
     .examples-modal-footer {
       display: flex;
       justify-content: space-between;
@@ -1554,6 +1888,7 @@
       background: #E4E0CE;
       border-top: 1px solid #C0BCAC;
     }
+
     .examples-remember-check {
       display: flex;
       align-items: center;
@@ -1563,7 +1898,7 @@
       cursor: pointer;
     }
 
-  
+
     /* PDF Reference Banner & Links in Examples */
     .pdf-reference-banner {
       background: #EEF2FF;
@@ -1576,6 +1911,7 @@
       justify-content: space-between;
       gap: 12px;
     }
+
     .example-pdf-link {
       display: inline-flex;
       align-items: center;
@@ -1591,6 +1927,7 @@
       border-radius: 3px;
       transition: all 0.15s ease;
     }
+
     .example-pdf-link:hover {
       background: #DBEAFE;
       color: #1E40AF;
@@ -1610,21 +1947,104 @@
       user-select: none;
       transition: transform 0.12s ease;
     }
+
     .tree-pkg {
       user-select: none;
     }
+
     .tree-count-badge {
       font-size: 10px;
       color: #777;
       margin-left: auto;
       padding-right: 4px;
     }
-    .tree-node.active .tree-count-badge, .tree-node.selected .tree-count-badge {
+
+    .tree-node.active .tree-count-badge,
+    .tree-node.selected .tree-count-badge {
       color: #CBD5E1;
     }
 
+    /* Shared Read-Only Project Banner */
+    .shared-readonly-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: #FFF8E1;
+      border-bottom: 2px solid #F59E0B;
+      color: #78350F;
+      font-size: 11.5px;
+      gap: 12px;
+      z-index: 25;
+      animation: fadeInBanner 0.25s ease-out;
+    }
+
+    @keyframes fadeInBanner {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .shared-readonly-banner .banner-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .shared-readonly-banner .banner-icon {
+      font-size: 15px;
+    }
+
+    .shared-readonly-banner .banner-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* Read-only Palette & Inspector */
+    .palette-btn.readonly-disabled {
+      opacity: 0.45;
+      cursor: not-allowed !important;
+      pointer-events: none;
+    }
+
+    .insp-readonly-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #FEF3C7;
+      border: 1px solid #F59E0B;
+      border-radius: 3px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #92400E;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .autosave-pill.readonly-protected {
+      background: #FEF3C7;
+      border-color: #FCD34D;
+      color: #92400E;
+    }
+
+    .btn-share-highlight {
+      background: #EFF6FF !important;
+      border-color: #3B82F6 !important;
+      color: #1D4ED8 !important;
+      font-weight: bold;
+    }
   </style>
 </head>
+
 <body>
 
   <!-- Top Title & Menu Bar -->
@@ -1632,12 +2052,11 @@
     <div class="md-title-bar">
       <div class="md-title-left">
         <img id="brand-uwe-logo" width="16" height="16" alt="MagicUWE Logo" />
-        <span>MagicUWE 1.5.0 Web — UML-based Web Engineering Modeler (LMU Munich 100% Fidelity)</span>
+        <span>MagicUWE 1.5.0 Web — UML-based Web Engineering Modeler (LMU Munich)</span>
       </div>
       <div class="md-title-badges">
         <span class="md-badge-pill">UWE 3.0 Meta-Profile</span>
         <span class="md-badge-pill">Exact MagicDraw 18.0 Design</span>
-        <span class="md-badge-pill">SQLite + Gmail Cloud</span>
       </div>
     </div>
 
@@ -1646,11 +2065,16 @@
       <div class="md-menu-dropdown">
         <button class="md-menu-trigger">Archivo</button>
         <div class="md-dropdown-content">
-                    <div class="md-menu-item" id="menu-open-examples">✨ Ejemplos de Proyectos (Manual UWE Sevilla)...</div>
-          <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-menu-item" id="menu-open-pdf" style="text-decoration:none;color:inherit;display:block;">📄 Ver Manual Oficial PDF (Nora Koch, Sevilla 2010) ↗</a>
+          <div class="md-menu-item" id="menu-share-project">🔗 Compartir Enlace Público...</div>
+          <div class="md-menu-item" id="menu-open-examples">✨ Ejemplos de Proyectos (Manual UWE Sevilla)...</div>
+          <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-menu-item"
+            id="menu-open-pdf" style="text-decoration:none;color:inherit;display:block;">📄 Ver Manual Oficial PDF (Nora
+            Koch, Sevilla 2010) ↗</a>
           <div class="md-menu-item" id="menu-new-blank">📄 Nuevo Proyecto en Blanco</div>
+          <div class="md-menu-item" id="menu-new-diagram">➕ Crear Nuevo Diagrama UWE...</div>
           <div class="md-menu-divider"></div>
-          <div class="md-menu-item" id="menu-save-cloud">💾 Guardar Proyecto en SQLite (Nube)</div>
+          <div class="md-menu-item" id="menu-export-sqlite">💾 Exportar Proyecto (.sqlite.db)</div>
+          <div class="md-menu-item" id="menu-import-sqlite">📂 Importar Proyecto (.sqlite.db)...</div>
           <div class="md-menu-divider"></div>
           <div class="md-menu-item" id="menu-export-svg">🖼️ Exportar Diagrama Vectorial (SVG)</div>
           <div class="md-menu-item" id="menu-export-png">📷 Exportar Diagrama Alta Resolución (PNG 300 DPI)</div>
@@ -1692,24 +2116,24 @@
       <div class="md-menu-dropdown">
         <button class="md-menu-trigger">Vistas del Modelo</button>
         <div class="md-dropdown-content">
-          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=visual]').click()">🎨 Vista Visual MagicDraw 18.0</div>
-          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=split]').click()">⚡ Vista Dividida (Visual + XML en vivo)</div>
-          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=xml]').click()">💻 Editor XML / XMI Completo</div>
-        </div>
-      </div>
-
-      <div class="md-menu-dropdown">
-        <button class="md-menu-trigger">Base de Datos SQLite</button>
-        <div class="md-dropdown-content">
-          <div class="md-menu-item" id="menu-inspect-sqlite">🔍 Inspeccionar Tablas Relacionales SQLite</div>
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=visual]').click()">🎨
+            Vista Visual MagicDraw 18.0</div>
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=split]').click()">⚡ Vista
+            Dividida (Visual + XML en vivo)</div>
+          <div class="md-menu-item" onclick="document.querySelector('.view-mode-btn[data-mode=xml]').click()">💻 Editor
+            XML / XMI Completo</div>
         </div>
       </div>
 
       <div class="md-menu-dropdown">
         <button class="md-menu-trigger">Ayuda / Tesis UWE</button>
         <div class="md-dropdown-content">
-          <div class="md-menu-item" onclick="alert('Metodología UWE 3.0 (UML-based Web Engineering)\nDesarrollada por LMU Munich.\nSoporta modelado sistemático de Requisitos, Contenido, Navegación, Presentación, Procesos y Seguridad.')">📖 Metodología UWE 3.0</div>
-          <div class="md-menu-item" onclick="alert('MagicUWE 1.5.0 Web recrea al 100% el plugin original de MagicDraw 18.0 con su paleta de colores (#FFE2C6 fill, #99795C border, #280000 tags), 154 iconos originales PNG y transformaciones modelo a modelo.')">ℹ️ Acerca de MagicUWE Web</div>
+          <div class="md-menu-item"
+            onclick="alert('Metodología UWE 3.0 (UML-based Web Engineering)\nDesarrollada por LMU Munich.\nSoporta modelado sistemático de Requisitos, Contenido, Navegación, Presentación, Procesos y Seguridad.')">
+            📖 Metodología UWE 3.0</div>
+          <div class="md-menu-item"
+            onclick="alert('MagicUWE 1.5.0 Web recrea al 100% el plugin original de MagicDraw 18.0 con su paleta de colores (#FFE2C6 fill, #99795C border, #280000 tags), 154 iconos originales PNG y transformaciones modelo a modelo.')">
+            ℹ️ Acerca de MagicUWE Web</div>
         </div>
       </div>
     </div>
@@ -1720,13 +2144,21 @@
       <div class="tb-group">
         <span style="font-weight:bold">Proyecto:</span>
         <select id="project-selector" class="md-input" style="min-width: 210px;"></select>
+        <span id="project-readonly-badge" class="badge-read-only" style="display:none;"
+          title="Este proyecto es un ejemplo oficial UWE y está protegido en modo Solo Lectura. Solo se puede guardar sobre proyectos propios.">📖
+          Solo Lectura</span>
         <button class="md-btn md-btn-primary" id="btn-save-cloud" title="Guardar cambios del modelo en SQLite">
           💾 Guardar
+        </button>
+        <button class="md-btn btn-share-highlight" id="btn-share-project" title="Compartir enlace público del proyecto">
+          🔗 Compartir
         </button>
         <button class="md-btn" id="btn-examples-quick" title="Explorar Ejemplos del Manual UWE o Crear en Blanco">
           ✨ Ejemplos
         </button>
-        <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-btn" id="btn-pdf-manual" title="Descargar / Ver PDF del Manual UWE Sevilla 2010 (Dra. Nora Koch)" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+        <a href="/manual/UWE_27042010_sevilla.pdf" target="_blank" rel="noopener noreferrer" class="md-btn"
+          id="btn-pdf-manual" title="Descargar / Ver PDF del Manual UWE Sevilla 2010 (Dra. Nora Koch)"
+          style="text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
           📄 Manual PDF
         </a>
 
@@ -1752,18 +2184,22 @@
       <!-- Canva-style Layers (Capas) & Grouping Controls -->
       <div class="tb-group">
         <span class="tb-group-title">Capas:</span>
-        <button class="md-btn md-btn-sm" id="btn-bring-front" title="Traer al Frente (Capa superior - Canva)">🔼 Frente</button>
+        <button class="md-btn md-btn-sm" id="btn-bring-front" title="Traer al Frente (Capa superior - Canva)">🔼
+          Frente</button>
         <button class="md-btn md-btn-sm" id="btn-bring-forward" title="Subir una capa (Adelante)">⬆️ Adelante</button>
         <button class="md-btn md-btn-sm" id="btn-send-backward" title="Bajar una capa (Atrás)">⬇️ Atrás</button>
-        <button class="md-btn md-btn-sm" id="btn-send-back" title="Enviar al Fondo (Capa inferior - Canva)">🔽 Fondo</button>
+        <button class="md-btn md-btn-sm" id="btn-send-back" title="Enviar al Fondo (Capa inferior - Canva)">🔽
+          Fondo</button>
       </div>
 
       <div class="tb-sep"></div>
 
       <div class="tb-group">
         <span class="tb-group-title">Grupo:</span>
-        <button class="md-btn md-btn-sm" id="btn-group-nodes" title="Agrupar elementos seleccionados para mover juntos (Ctrl+G)">🔗 Agrupar</button>
-        <button class="md-btn md-btn-sm" id="btn-ungroup-nodes" title="Desagrupar elementos (Ctrl+Shift+G)">🔓 Desagrupar</button>
+        <button class="md-btn md-btn-sm" id="btn-group-nodes"
+          title="Agrupar elementos seleccionados para mover juntos (Ctrl+G)">🔗 Agrupar</button>
+        <button class="md-btn md-btn-sm" id="btn-ungroup-nodes" title="Desagrupar elementos (Ctrl+Shift+G)">🔓
+          Desagrupar</button>
       </div>
 
       <div class="tb-sep"></div>
@@ -1783,6 +2219,17 @@
 
       <div class="tb-sep"></div>
 
+      <!-- Autosave Status Indicator (Lado derecho de la barra) -->
+      <div class="tb-group" id="autosave-group">
+        <div class="autosave-pill" id="autosave-indicator"
+          title="Autoguardado activado: cada 5 min o cada 10 cambios. Haz clic para guardar ahora.">
+          <span class="autosave-icon" id="autosave-icon">☁️</span>
+          <span class="autosave-text" id="autosave-text">Guardado hace un momento</span>
+        </div>
+      </div>
+
+      <div class="tb-sep"></div>
+
       <!-- Auth Area: Google/Gmail or User Badge -->
       <div class="tb-group" id="user-auth-area"></div>
     </div>
@@ -1795,8 +2242,12 @@
       <div class="dock-title">
         <span>Containment Tree (UWE Models)</span>
         <div style="margin-left:auto; display:flex; gap:3px;">
-          <button class="md-btn md-btn-sm" id="btn-tree-expand-all" style="padding:1px 5px; font-size:10px;" title="Expandir todo el árbol de paquetes">⊞ Todo</button>
-          <button class="md-btn md-btn-sm" id="btn-tree-collapse-all" style="padding:1px 5px; font-size:10px;" title="Colapsar todo el árbol de paquetes">⊟ Todo</button>
+          <button class="md-btn md-btn-sm" id="btn-tree-new-diagram" style="padding:1px 5px; font-size:10px;"
+            title="Crear nuevo diagrama UWE 3.0">➕ Diagrama</button>
+          <button class="md-btn md-btn-sm" id="btn-tree-expand-all" style="padding:1px 5px; font-size:10px;"
+            title="Expandir todo el árbol de paquetes">⊞ Todo</button>
+          <button class="md-btn md-btn-sm" id="btn-tree-collapse-all" style="padding:1px 5px; font-size:10px;"
+            title="Colapsar todo el árbol de paquetes">⊟ Todo</button>
         </div>
       </div>
       <div class="tree-scroll-container" id="containment-tree"></div>
@@ -1804,6 +2255,24 @@
 
     <!-- Center Dock: Workspace (Diagrams, Canvas & XML Editor) -->
     <section class="workspace-center" id="main-workspace-split">
+      <!-- Shared Read-Only Project Banner -->
+      <div id="shared-readonly-banner" class="shared-readonly-banner" style="display:none;">
+        <div class="banner-left">
+          <span class="banner-icon">🔒</span>
+          <span class="banner-text">
+            <strong>Modo Solo Lectura (Invitado):</strong> Estás viendo el proyecto compartido <span
+              id="banner-proj-name" style="font-weight:bold;color:#92400E;"></span> (creado por <span
+              id="banner-owner-name" style="font-weight:bold;color:#92400E;"></span>). Solo el autor puede editarlo.
+          </span>
+        </div>
+        <div class="banner-right">
+          <button class="md-btn md-btn-primary md-btn-sm" id="btn-banner-duplicate"
+            title="Guardar una copia editable de este proyecto en tus propios proyectos de SQLite">
+            📋 Guardar una Copia
+          </button>
+        </div>
+      </div>
+
       <!-- Diagram Tabs Bar -->
       <div class="md-tabs-bar" id="diagram-tabs"></div>
 
@@ -1831,7 +2300,8 @@
           <div class="xml-header-bar">
             <span class="xml-status-badge synced" id="xml-sync-status">✓ Sincronizado con el Diagrama Visual</span>
             <div style="display:flex;gap:4px">
-              <button class="md-btn md-btn-primary md-btn-sm" id="btn-apply-xml" title="Parsea el código XML y actualiza el diagrama y árbol de contención">
+              <button class="md-btn md-btn-primary md-btn-sm" id="btn-apply-xml"
+                title="Parsea el código XML y actualiza el diagrama y árbol de contención">
                 Aplicar XML al Modelo
               </button>
               <button class="md-btn md-btn-sm" id="btn-download-xml" title="Descargar como archivo .uwe.xml">
@@ -1839,7 +2309,8 @@
               </button>
             </div>
           </div>
-          <textarea class="xml-textarea" id="xml-editor-textarea" spellcheck="false" placeholder="Cargando representación XML del modelo..."></textarea>
+          <textarea class="xml-textarea" id="xml-editor-textarea" spellcheck="false"
+            placeholder="Cargando representación XML del modelo..."></textarea>
         </div>
       </div>
     </section>
@@ -1858,13 +2329,14 @@
     <div class="sb-left">
       <span id="status-message">MagicUWE 1.5.0 Web Listo — Perfil UWE 3.0 cargado.</span>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="sb-autosave-status" style="font-size:10px;color:#444;">💾 Guardado hace un momento</span>
       <span>UWE Profile v3.0 | MagicDraw 18.0 Symbol Style | EPL-1.0</span>
     </div>
   </footer>
 
   <!-- Hidden SQLite File Input -->
-  <input type="file" id="hidden-sqlite-input" accept=".sqlite,.db" style="display:none" />
+  <input type="file" id="hidden-sqlite-input" accept=".sqlite,.db,.sqlite3,.sqlite.db,.uwe.sqlite" style="display:none" />
 
   <!-- Global Modal Overlay -->
   <div class="modal-overlay" id="modal-overlay">
@@ -1884,18 +2356,19 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
   <!-- Application Scripts (Versioned for Cache Invalidation) -->
-  <script src="/assets/uwe-assets.js?v=1.5.8"></script>
-  <script src="/assets/uwe-engine.js?v=1.5.8"></script>
-  <script src="/assets/app.js?v=1.5.8"></script>
+  <script src="/assets/uwe-assets.js?v=1.6.3"></script>
+  <script src="/assets/uwe-engine.js?v=1.6.3"></script>
+  <script src="/assets/app.js?v=1.6.7"></script>
 
   <script>
     // Wire dropdown menu shortcuts
-    document.getElementById('menu-save-cloud').onclick = () => document.getElementById('btn-save-cloud').click();
-    document.getElementById('menu-export-svg').onclick = () => document.getElementById('btn-export-svg').click();
-    document.getElementById('menu-export-png').onclick = () => document.getElementById('btn-export-png').click();
-    document.getElementById('menu-inspect-sqlite').onclick = () => document.getElementById('btn-sqlite-inspect').click();
-    document.getElementById('menu-export-xml').onclick = () => document.getElementById('btn-download-xml').click();
+    const mSvg = document.getElementById('menu-export-svg');
+    if (mSvg) mSvg.onclick = () => document.getElementById('btn-export-svg')?.click();
+    const mPng = document.getElementById('menu-export-png');
+    if (mPng) mPng.onclick = () => document.getElementById('btn-export-png')?.click();
+    const mXml = document.getElementById('menu-export-xml');
+    if (mXml) mXml.onclick = () => document.getElementById('btn-download-xml')?.click();
   </script>
 </body>
-</html>
 
+</html>

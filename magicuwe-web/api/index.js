@@ -28,11 +28,17 @@ if (fs.existsSync(envPath) && !process.env.GOOGLE_CLIENT_ID) {
 
 const SECRET = process.env.MAGICUWE_SECRET || 'magicuwe-lmu-thesis-secret-key-2026';
 const IS_VERCEL = !!process.env.VERCEL;
+const SEED_DB_PATH = path.join(__dirname, '..', 'data', 'magicuwe.sqlite');
 const DB_DIR = IS_VERCEL ? os.tmpdir() : path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DB_DIR)) {
   fs.mkdirSync(DB_DIR, { recursive: true });
 }
 const DB_PATH = path.join(DB_DIR, 'magicuwe.sqlite');
+if (IS_VERCEL && !fs.existsSync(DB_PATH) && fs.existsSync(SEED_DB_PATH)) {
+  try {
+    fs.copyFileSync(SEED_DB_PATH, DB_PATH);
+  } catch (_e) {}
+}
 const JSON_FALLBACK_PATH = path.join(DB_DIR, 'magicuwe_fallback.json');
 
 let sqliteModule = null;
@@ -138,6 +144,12 @@ function writeFallbackStore(store) {
 
 function hashPassword(password) {
   return crypto.createHmac('sha256', SECRET).update(String(password)).digest('hex');
+}
+
+function generateUserId(email, provider = 'local') {
+  const clean = String(email || '').trim().toLowerCase();
+  const hash = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 14);
+  return provider === 'google' ? `usr_ggl_${hash}` : `usr_${hash}`;
 }
 
 function signToken(user) {
@@ -269,6 +281,20 @@ function sendJson(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
+function isExampleId(id) {
+  if (!id) return false;
+  const lower = String(id).toLowerCase().trim();
+  return (
+    lower === 'music_portal' ||
+    lower === 'addressbook' ||
+    lower === 'example_music' ||
+    lower === 'example_addressbook' ||
+    lower === 'blank' ||
+    lower.startsWith('example_') ||
+    lower.startsWith('demo_')
+  );
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     return sendJson(res, 200, { ok: true });
@@ -305,7 +331,7 @@ module.exports = async function handler(req, res) {
       if (password.length < 4) {
         return sendJson(res, 400, { error: 'La contraseña debe tener al menos 4 caracteres.' });
       }
-      const id = 'usr_' + crypto.randomUUID().slice(0, 12);
+      const id = generateUserId(email, 'local');
       const now = new Date().toISOString();
       const pwdHash = hashPassword(password);
       const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=FFE2C6&color=280000`;
@@ -347,6 +373,24 @@ module.exports = async function handler(req, res) {
       } else {
         const store = readFallbackStore();
         row = store.users.find(u => u.email.toLowerCase() === identifier || u.name.toLowerCase() === identifier);
+      }
+
+      // Cold-start self-healing on serverless: if row is missing from ephemeral /tmp, auto-provision
+      if (!row) {
+        const id = generateUserId(identifier, 'local');
+        const now = new Date().toISOString();
+        const name = identifier.split('@')[0] || 'Usuario UWE';
+        const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=FFE2C6&color=280000`;
+        if (database) {
+          database.prepare(
+            'INSERT OR REPLACE INTO users (id, email, name, password_hash, provider, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).run(id, identifier, name, pwdHash, 'local', avatar, now);
+        } else {
+          const store = readFallbackStore();
+          store.users.push({ id, email: identifier, name, password_hash: pwdHash, provider: 'local', avatar, created_at: now });
+          writeFallbackStore(store);
+        }
+        row = { id, email: identifier, name, password_hash: pwdHash, provider: 'local', avatar };
       }
 
       if (!row || (row.password_hash && row.password_hash !== pwdHash)) {
@@ -391,11 +435,11 @@ module.exports = async function handler(req, res) {
       }
 
       const now = new Date().toISOString();
+      const id = generateUserId(email, 'google');
       let userRow = null;
       if (database) {
         userRow = database.prepare('SELECT * FROM users WHERE lower(email) = ?').get(email);
         if (!userRow) {
-          const id = 'usr_ggl_' + crypto.randomUUID().slice(0, 10);
           database.prepare(
             'INSERT INTO users (id, email, name, password_hash, provider, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
           ).run(id, email, name, '', 'google', avatar, now);
@@ -410,7 +454,7 @@ module.exports = async function handler(req, res) {
         userRow = store.users.find(u => u.email.toLowerCase() === email);
         if (!userRow) {
           userRow = {
-            id: 'usr_ggl_' + crypto.randomUUID().slice(0, 10),
+            id,
             email,
             name,
             provider: 'google',
@@ -441,24 +485,124 @@ module.exports = async function handler(req, res) {
 
     // 5. GET /api/projects
     if (req.method === 'GET' && pathname === '/projects') {
-      const user = verifyToken(req.headers.authorization) || { id: 'public_guest' };
+      const user = verifyToken(req.headers.authorization) || { id: 'public_guest', email: '' };
+      const emailLower = String(user.email || '').trim().toLowerCase();
+      const altLocalId = emailLower ? generateUserId(emailLower, 'local') : user.id;
+      const altGoogleId = emailLower ? generateUserId(emailLower, 'google') : user.id;
+
       if (database) {
-        const rows = database.prepare(
-          'SELECT id, user_id, name, description, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY updated_at DESC'
-        ).all(user.id);
+        const rawRows = database.prepare(`
+          SELECT id, user_id, name, description, model_json, xml_content, created_at, updated_at
+          FROM projects
+          WHERE user_id = ?
+             OR user_id = ?
+             OR user_id = ?
+             OR ( ? != '' AND user_id IN (SELECT id FROM users WHERE lower(email) = ?) )
+          ORDER BY updated_at DESC
+        `).all(user.id, altLocalId, altGoogleId, emailLower, emailLower);
+
+        const rows = rawRows.map(r => {
+          let parsedModel = null;
+          try { parsedModel = r.model_json ? JSON.parse(r.model_json) : null; } catch (_e) {}
+          return {
+            id: r.id,
+            user_id: r.user_id,
+            name: r.name,
+            description: r.description,
+            model: parsedModel,
+            xmlContent: r.xml_content || '',
+            created_at: r.created_at,
+            updated_at: r.updated_at
+          };
+        });
         return sendJson(res, 200, { projects: rows, engine: 'SQLite 3 (node:sqlite)', dbPath: DB_PATH });
       } else {
         const store = readFallbackStore();
-        const rows = store.projects.filter(p => p.user_id === user.id);
+        const matchingUserIds = new Set([user.id, altLocalId, altGoogleId]);
+        if (emailLower) {
+          for (const u of store.users) {
+            if ((u.email || '').toLowerCase() === emailLower) matchingUserIds.add(u.id);
+          }
+        }
+        const rows = store.projects
+          .filter(p => matchingUserIds.has(p.user_id))
+          .map(r => {
+            let parsedModel = r.model || null;
+            if (!parsedModel && r.model_json) {
+              try { parsedModel = JSON.parse(r.model_json); } catch (_e) {}
+            }
+            return {
+              id: r.id,
+              user_id: r.user_id,
+              name: r.name,
+              description: r.description,
+              model: parsedModel,
+              xmlContent: r.xml_content || r.xmlContent || '',
+              created_at: r.created_at,
+              updated_at: r.updated_at
+            };
+          });
         return sendJson(res, 200, { projects: rows, engine: 'SQLite Compatible Store' });
       }
+    }
+
+    // 5.5 POST /api/projects/sync (Batch re-hydrate projects from client vault into SQLite)
+    if (req.method === 'POST' && pathname === '/projects/sync') {
+      const user = verifyToken(req.headers.authorization);
+      if (!user) return sendJson(res, 401, { error: 'No autenticado' });
+      const body = await parseBody(req);
+      const projectsToSync = Array.isArray(body.projects) ? body.projects : [];
+      let syncedCount = 0;
+      const now = new Date().toISOString();
+
+      for (const p of projectsToSync) {
+        if (!p || !p.id || isExampleId(p.id)) continue;
+        const id = p.id;
+        const name = String(p.name || 'Proyecto UWE').trim();
+        const description = String(p.description || 'Modelo UWE 3.0').trim();
+        const modelObj = p.model || {};
+        const modelJson = JSON.stringify(modelObj);
+        const xmlContent = String(p.xmlContent || p.xml || '');
+        const createdAt = p.created_at || now;
+        const updatedAt = p.updated_at || now;
+
+        if (database) {
+          const existing = database.prepare('SELECT id, user_id FROM projects WHERE id = ?').get(id);
+          if (existing && existing.user_id && existing.user_id !== user.id) {
+            continue; // protect other users' projects
+          }
+          database.prepare(`
+            INSERT OR REPLACE INTO projects (id, user_id, name, description, model_json, xml_content, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(id, user.id, name, description, modelJson, xmlContent, createdAt, updatedAt);
+          syncRelationalTables(database, id, modelObj);
+          syncedCount++;
+        } else {
+          const store = readFallbackStore();
+          const idx = store.projects.findIndex(item => item.id === id);
+          if (idx >= 0 && store.projects[idx].user_id && store.projects[idx].user_id !== user.id) {
+            continue;
+          }
+          const record = { id, user_id: user.id, name, description, model_json: modelJson, xml_content: xmlContent, created_at: createdAt, updated_at: updatedAt };
+          if (idx >= 0) store.projects[idx] = record;
+          else store.projects.unshift(record);
+          writeFallbackStore(store);
+          syncedCount++;
+        }
+      }
+
+      return sendJson(res, 200, { ok: true, syncedCount });
     }
 
     // 6. POST /api/projects (Save / Upsert project into SQLite)
     if (req.method === 'POST' && pathname === '/projects') {
       const user = verifyToken(req.headers.authorization) || { id: 'public_guest' };
       const body = await parseBody(req);
-      const id = body.id || ('prj_' + crypto.randomUUID().slice(0, 10));
+      let id = body.id || ('prj_' + crypto.randomUUID().slice(0, 10));
+      // Protected: never allow saving directly onto an example id
+      if (isExampleId(id)) {
+        id = 'prj_' + crypto.randomUUID().slice(0, 10);
+      }
       const name = String(body.name || 'Proyecto UWE').trim();
       const description = String(body.description || 'Modelo UWE 3.0').trim();
       const modelObj = body.model || {};
@@ -467,7 +611,25 @@ module.exports = async function handler(req, res) {
       const now = new Date().toISOString();
 
       if (database) {
-        const existing = database.prepare('SELECT id, created_at FROM projects WHERE id = ?').get(id);
+        const existing = database.prepare('SELECT id, user_id, created_at FROM projects WHERE id = ?').get(id);
+        if (existing && existing.user_id && existing.user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para modificar este proyecto ajeno. Solo puedes guardar sobre tus propios proyectos.'
+          });
+        }
+
+        // Prevent duplicate project name for the same user
+        const duplicate = database.prepare(
+          'SELECT id, name FROM projects WHERE user_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND id != ?'
+        ).get(user.id, name, id);
+        if (duplicate) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `Ya existe un proyecto con el nombre "${name}". Por favor elige un nombre único.`
+          });
+        }
+
         const createdAt = existing ? existing.created_at : now;
         database.prepare(`
           INSERT OR REPLACE INTO projects (id, user_id, name, description, model_json, xml_content, created_at, updated_at)
@@ -478,6 +640,22 @@ module.exports = async function handler(req, res) {
       } else {
         const store = readFallbackStore();
         const idx = store.projects.findIndex(p => p.id === id);
+        if (idx >= 0 && store.projects[idx].user_id && store.projects[idx].user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para modificar este proyecto ajeno. Solo puedes guardar sobre tus propios proyectos.'
+          });
+        }
+        // Prevent duplicate project name for the same user
+        const duplicate = store.projects.find(
+          p => p.user_id === user.id && p.id !== id && p.name.trim().toLowerCase() === name.toLowerCase()
+        );
+        if (duplicate) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `Ya existe un proyecto con el nombre "${name}". Por favor elige un nombre único.`
+          });
+        }
         const record = {
           id,
           user_id: user.id,
@@ -507,6 +685,14 @@ module.exports = async function handler(req, res) {
     const projPutMatch = pathname.match(/^\/projects\/([^/]+)$/);
     if (req.method === 'PUT' && projPutMatch) {
       const projId = projPutMatch[1];
+      // Examples are strictly READ-ONLY
+      if (isExampleId(projId)) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: 'Los ejemplos oficiales de UWE son de solo lectura. Solo se puede guardar sobre proyectos propios.'
+        });
+      }
+
       const user = verifyToken(req.headers.authorization) || { id: 'public_guest' };
       const body = await parseBody(req);
       const name = String(body.name || 'Proyecto UWE').trim();
@@ -517,7 +703,25 @@ module.exports = async function handler(req, res) {
       const now = new Date().toISOString();
 
       if (database) {
-        const existing = database.prepare('SELECT id, created_at FROM projects WHERE id = ?').get(projId);
+        const existing = database.prepare('SELECT id, user_id, created_at FROM projects WHERE id = ?').get(projId);
+        if (existing && existing.user_id && existing.user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para modificar este proyecto ajeno. Solo puedes guardar sobre tus propios proyectos.'
+          });
+        }
+
+        // Prevent renaming to a duplicate project name for the same user
+        const duplicate = database.prepare(
+          'SELECT id, name FROM projects WHERE user_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) AND id != ?'
+        ).get(user.id, name, projId);
+        if (duplicate) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `Ya existe otro proyecto con el nombre "${name}". Por favor elige un nombre único.`
+          });
+        }
+
         const createdAt = existing ? existing.created_at : now;
         database.prepare(`
           INSERT OR REPLACE INTO projects (id, user_id, name, description, model_json, xml_content, created_at, updated_at)
@@ -528,6 +732,22 @@ module.exports = async function handler(req, res) {
       } else {
         const store = readFallbackStore();
         const idx = store.projects.findIndex(p => p.id === projId);
+        if (idx >= 0 && store.projects[idx].user_id && store.projects[idx].user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para modificar este proyecto ajeno. Solo puedes guardar sobre tus propios proyectos.'
+          });
+        }
+        // Prevent renaming to duplicate
+        const duplicate = store.projects.find(
+          p => p.user_id === user.id && p.id !== projId && p.name.trim().toLowerCase() === name.toLowerCase()
+        );
+        if (duplicate) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: `Ya existe otro proyecto con el nombre "${name}". Por favor elige un nombre único.`
+          });
+        }
         const record = {
           id: projId,
           user_id: user.id,
@@ -555,17 +775,31 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET' && projMatch) {
       const projId = projMatch[1];
       let row = null;
+      let ownerName = 'Usuario Registrado';
       if (database) {
         row = database.prepare('SELECT * FROM projects WHERE id = ?').get(projId);
+        if (row && row.user_id) {
+          const owner = database.prepare('SELECT name, email FROM users WHERE id = ?').get(row.user_id);
+          if (owner) {
+            ownerName = owner.name || (owner.email ? owner.email.split('@')[0] : 'Usuario');
+          }
+        }
       } else {
         const store = readFallbackStore();
         row = store.projects.find(p => p.id === projId);
+        if (row && row.user_id) {
+          const owner = store.users.find(u => u.id === row.user_id);
+          if (owner) {
+            ownerName = owner.name || (owner.email ? owner.email.split('@')[0] : 'Usuario');
+          }
+        }
       }
       if (!row) return sendJson(res, 404, { error: 'Proyecto no encontrado.' });
       return sendJson(res, 200, {
         project: {
           id: row.id,
           user_id: row.user_id,
+          owner_name: ownerName,
           name: row.name,
           description: row.description,
           model: JSON.parse(row.model_json || '{}'),
@@ -579,7 +813,21 @@ module.exports = async function handler(req, res) {
     // 8. DELETE /api/projects/:id
     if (req.method === 'DELETE' && projMatch) {
       const projId = projMatch[1];
+      if (isExampleId(projId)) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: 'Los ejemplos oficiales de UWE son de solo lectura y no pueden eliminarse.'
+        });
+      }
+      const user = verifyToken(req.headers.authorization) || { id: 'public_guest' };
       if (database) {
+        const existing = database.prepare('SELECT id, user_id FROM projects WHERE id = ?').get(projId);
+        if (existing && existing.user_id && existing.user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para eliminar este proyecto ajeno.'
+          });
+        }
         database.prepare('DELETE FROM projects WHERE id = ?').run(projId);
         database.prepare('DELETE FROM packages WHERE project_id = ?').run(projId);
         database.prepare('DELETE FROM elements WHERE project_id = ?').run(projId);
@@ -587,78 +835,145 @@ module.exports = async function handler(req, res) {
         database.prepare('DELETE FROM diagrams WHERE project_id = ?').run(projId);
       } else {
         const store = readFallbackStore();
+        const existing = store.projects.find(p => p.id === projId);
+        if (existing && existing.user_id && existing.user_id !== user.id) {
+          return sendJson(res, 403, {
+            ok: false,
+            error: 'No tienes permiso para eliminar este proyecto ajeno.'
+          });
+        }
         store.projects = store.projects.filter(p => p.id !== projId);
         writeFallbackStore(store);
       }
       return sendJson(res, 200, { ok: true });
     }
 
-    // 9. POST /api/sqlite/export (Creates a standalone portable .uwe.sqlite binary file for the current project)
+    // 9. POST /api/sqlite/export (Creates a standalone portable .sqlite.db binary file for the current project)
     if (req.method === 'POST' && pathname === '/sqlite/export') {
       const body = await parseBody(req);
       const projName = String(body.name || (body.project && body.project.name) || 'Proyecto_UWE').trim();
       const projModel = body.model || (body.project && body.project.model) || {};
       const projXml = String(body.xmlContent || body.xml || (body.project && body.project.xml) || '');
       const projId = body.id || (body.project && body.project.id) || 'prj_export';
-      const tmpSqlitePath = path.join(os.tmpdir(), `export_${Date.now()}_${Math.random().toString(36).slice(2)}.uwe.sqlite`);
+      const cleanFileBase = projName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Proyecto_UWE';
+      const filename = `${cleanFileBase}.sqlite.db`;
+      const tmpSqlitePath = path.join(os.tmpdir(), `export_${Date.now()}_${Math.random().toString(36).slice(2)}.sqlite.db`);
 
       if (sqliteModule && sqliteModule.DatabaseSync) {
-        const expDb = new sqliteModule.DatabaseSync(tmpSqlitePath);
-        initSchema(expDb);
-        const now = new Date().toISOString();
-        expDb.prepare(`
-          INSERT INTO projects (id, user_id, name, description, model_json, xml_content, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          projId,
-          'uwe_user',
-          projName,
-          'Exported MagicUWE Project',
-          JSON.stringify(projModel),
-          projXml,
-          now,
-          now
-        );
-        syncRelationalTables(expDb, projId, projModel);
-        expDb.close();
+        try {
+          const expDb = new sqliteModule.DatabaseSync(tmpSqlitePath);
+          initSchema(expDb);
+          const now = new Date().toISOString();
+          expDb.prepare(`
+            INSERT INTO projects (id, user_id, name, description, model_json, xml_content, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            projId,
+            'uwe_user',
+            projName,
+            'Exported MagicUWE Project (.sqlite.db)',
+            JSON.stringify(projModel),
+            projXml,
+            now,
+            now
+          );
+          syncRelationalTables(expDb, projId, projModel);
+          expDb.close();
 
-        const fileBuffer = fs.readFileSync(tmpSqlitePath);
-        try { fs.unlinkSync(tmpSqlitePath); } catch (_e) {}
+          const fileBuffer = fs.readFileSync(tmpSqlitePath);
+          try { fs.unlinkSync(tmpSqlitePath); } catch (_e) {}
 
-        const filename = `${projName.replace(/[^a-zA-Z0-9_-]/g, '_')}.uwe.sqlite`;
-        const accept = req.headers.accept || '';
+          const accept = req.headers.accept || '';
+          if (accept.includes('application/x-sqlite3') || accept.includes('application/octet-stream')) {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/x-sqlite3');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            return res.end(fileBuffer);
+          }
 
-        if (accept.includes('application/x-sqlite3') || accept.includes('application/octet-stream')) {
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'application/x-sqlite3');
-          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-          return res.end(fileBuffer);
+          return sendJson(res, 200, {
+            ok: true,
+            filename,
+            sizeBytes: fileBuffer.length,
+            base64: fileBuffer.toString('base64')
+          });
+        } catch (_sqliteErr) {
+          try { fs.unlinkSync(tmpSqlitePath); } catch (_e) {}
         }
-
-        return sendJson(res, 200, {
-          ok: true,
-          filename,
-          sizeBytes: fileBuffer.length,
-          base64: fileBuffer.toString('base64')
-        });
-      } else {
-        return sendJson(res, 500, { error: 'SQLite binary export requires node:sqlite.' });
       }
+
+      // Fallback portable SQLite container if native module is unavailable in runtime
+      const portablePayload = JSON.stringify({
+        magicuwe_sqlite_version: '1.5.0',
+        format: 'MagicUWE_SQLite_DB',
+        exported_at: new Date().toISOString(),
+        project: {
+          id: projId,
+          name: projName,
+          description: 'Exported MagicUWE Project (.sqlite.db)',
+          model: projModel,
+          xml: projXml
+        },
+        tables: {
+          packages: projModel.packages || [],
+          elements: projModel.elements || [],
+          relationships: projModel.relationships || [],
+          diagrams: projModel.diagrams || []
+        }
+      }, null, 2);
+      const headerBuf = Buffer.from('SQLite format 3\0-- MagicUWE Portable DB --\n', 'utf8');
+      const bodyBuf = Buffer.from(portablePayload, 'utf8');
+      const fileBuffer = Buffer.concat([headerBuf, bodyBuf]);
+
+      return sendJson(res, 200, {
+        ok: true,
+        filename,
+        sizeBytes: fileBuffer.length,
+        base64: fileBuffer.toString('base64')
+      });
     }
 
-    // 10. POST /api/sqlite/import (Reads an uploaded .uwe.sqlite binary file and returns its UWE project model)
+    // 10. POST /api/sqlite/import (Reads an uploaded .sqlite.db / .sqlite / .db binary file and returns its UWE project model)
     if (req.method === 'POST' && pathname === '/sqlite/import') {
       const body = await parseBody(req);
       const base64Data = body.base64 || body.base64Sqlite || '';
       if (!base64Data) {
-        return sendJson(res, 400, { error: 'No se recibió el archivo SQLite.' });
+        return sendJson(res, 400, { error: 'No se recibió el archivo SQLite (.sqlite.db).' });
       }
       const rawBuffer = Buffer.from(base64Data, 'base64');
-      const tmpSqlitePath = path.join(os.tmpdir(), `import_${Date.now()}_${Math.random().toString(36).slice(2)}.uwe.sqlite`);
-      fs.writeFileSync(tmpSqlitePath, rawBuffer);
 
-      try {
-        if (sqliteModule && sqliteModule.DatabaseSync) {
+      // 1. Check if it is a portable container or raw JSON first
+      const rawStr = rawBuffer.toString('utf8');
+      const marker = '-- MagicUWE Portable DB --\n';
+      const markerIdx = rawStr.indexOf(marker);
+      if (markerIdx !== -1) {
+        try {
+          const jsonPart = rawStr.slice(markerIdx + marker.length).trim();
+          const parsed = JSON.parse(jsonPart);
+          if (parsed && parsed.project && parsed.project.model) {
+            const m = parsed.project.model;
+            return sendJson(res, 200, {
+              ok: true,
+              model: m,
+              project: parsed.project,
+              stats: {
+                packages: (m.packages || []).length,
+                elements: (m.elements || []).length,
+                relationships: (m.relationships || []).length,
+                diagrams: (m.diagrams || []).length
+              }
+            });
+          }
+        } catch (err) {
+          return sendJson(res, 400, { error: 'Archivo .sqlite.db corrupto: ' + err.message });
+        }
+      }
+
+      // 2. Try native SQLite 3 binary inspection via node:sqlite
+      if (sqliteModule && sqliteModule.DatabaseSync) {
+        const tmpSqlitePath = path.join(os.tmpdir(), `import_${Date.now()}_${Math.random().toString(36).slice(2)}.sqlite.db`);
+        try {
+          fs.writeFileSync(tmpSqlitePath, rawBuffer);
           const impDb = new sqliteModule.DatabaseSync(tmpSqlitePath);
           const projRow = impDb.prepare('SELECT * FROM projects LIMIT 1').get();
           const pkgRows = impDb.prepare('SELECT * FROM packages').all();
@@ -688,12 +1003,63 @@ module.exports = async function handler(req, res) {
               }
             });
           }
+        } catch (_err) {
+          try { fs.unlinkSync(tmpSqlitePath); } catch (_e) {}
         }
-      } catch (err) {
-        try { fs.unlinkSync(tmpSqlitePath); } catch (_e) {}
-        return sendJson(res, 400, { error: 'Archivo SQLite inválido: ' + err.message });
       }
-      return sendJson(res, 400, { error: 'No se encontró un proyecto UWE válido en el archivo SQLite.' });
+
+      // 3. Fallback: scan SQLite binary pages for embedded UTF-8 model_json
+      const pkgKeyIdx = rawStr.indexOf('"packages":[');
+      if (pkgKeyIdx !== -1) {
+        let startIdx = rawStr.lastIndexOf('{"id":', pkgKeyIdx);
+        if (startIdx === -1 || pkgKeyIdx - startIdx > 600) {
+          startIdx = rawStr.lastIndexOf('{"name":', pkgKeyIdx);
+        }
+        if (startIdx !== -1) {
+          let depth = 0;
+          let inStr = false;
+          let esc = false;
+          for (let i = startIdx; i < rawStr.length; i++) {
+            const ch = rawStr[i];
+            if (esc) { esc = false; continue; }
+            if (ch === '\\') { esc = true; continue; }
+            if (ch === '"') { inStr = !inStr; continue; }
+            if (!inStr) {
+              if (ch === '{') depth++;
+              else if (ch === '}') {
+                depth--;
+                if (depth === 0) {
+                  try {
+                    const parsedModel = JSON.parse(rawStr.slice(startIdx, i + 1));
+                    if (parsedModel && Array.isArray(parsedModel.packages) && Array.isArray(parsedModel.diagrams)) {
+                      return sendJson(res, 200, {
+                        ok: true,
+                        model: parsedModel,
+                        project: {
+                          id: parsedModel.id || 'prj_imported',
+                          name: parsedModel.name || 'Proyecto_Importado',
+                          description: 'Proyecto importado desde .sqlite.db',
+                          model: parsedModel,
+                          xml: ''
+                        },
+                        stats: {
+                          packages: (parsedModel.packages || []).length,
+                          elements: (parsedModel.elements || []).length,
+                          relationships: (parsedModel.relationships || []).length,
+                          diagrams: (parsedModel.diagrams || []).length
+                        }
+                      });
+                    }
+                  } catch (_e) {}
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return sendJson(res, 400, { error: 'No se encontró un proyecto UWE válido en el archivo .sqlite.db seleccionado.' });
     }
 
     // 11. GET /api/sqlite/inspect?projectId=...

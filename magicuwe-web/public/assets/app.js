@@ -13,6 +13,11 @@
     token: localStorage.getItem('magicuwe_token') || null,
     projects: [],
     currentProjectId: null,
+    projectOwnerId: null,
+    projectOwnerName: '',
+    isReadOnly: false, // Only true when viewing an external shared project from another user
+    isExample: true, // Official examples are read-only; saving requires creating an own project
+    exampleId: 'music_portal',
     model: (ENGINE.createMusicPortalDemoModel ? ENGINE.createMusicPortalDemoModel() : ENGINE.createAddressBookDemoModel()),
     activeDiagramId: 'dg_mp_req',
     activeTool: { id: 'select', type: 'SELECT', label: 'Select' },
@@ -22,11 +27,14 @@
     selectedEdgeId: null,
     collapsedPackages: new Set(),
     collapsedElements: new Set(),
+    paletteExpandedSections: new Set(),
+    paletteMainCollapsed: false,
     rootCollapsed: false, // relationshipId of selected edge
     selectedNestedPropIdx: null, // index of nested property inside selected node
     pendingEdgeSourceId: null, // when drawing an association/link/transition
     zoom: 1,
     dragging: null, // { elementId, startX, startY, origX, origY }
+    draggingName: null, // { elementId, startX, startY, origOffsetX, origOffsetY }
     resizing: null, // { elementId, startX, startY, origW, origH }
     xmlDirty: false
   };
@@ -118,77 +126,1250 @@
     renderAuthBar();
   }
 
+  // ==================== PERSISTENT USER VAULT (LOCAL + CLOUD) ====================
+  function isExampleId(id) {
+    if (!id) return false;
+    const lower = String(id).toLowerCase().trim();
+    return (
+      lower === 'music_portal' ||
+      lower === 'addressbook' ||
+      lower === 'example_music' ||
+      lower === 'example_addressbook' ||
+      lower === 'blank' ||
+      lower.startsWith('example_') ||
+      lower.startsWith('demo_')
+    );
+  }
+
+  function getVaultKey(user) {
+    if (!user) return 'magicuwe_vault_guest';
+    const email = (user.email || user.name || user.id || 'default').toLowerCase().trim();
+    return `magicuwe_vault_${email}`;
+  }
+
+  function loadLocalUserVault(user) {
+    if (!user) return [];
+    const byId = new Map();
+    const emailLower = (user.email || '').toLowerCase().trim();
+    const keysToTry = [
+      getVaultKey(user),
+      user.id ? `magicuwe_vault_${user.id}` : null
+    ].filter(Boolean);
+
+    for (const k of keysToTry) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        const data = JSON.parse(raw);
+        const list = Array.isArray(data) ? data : (data.projects || []);
+        for (const p of list) {
+          if (p && p.id && !isExampleId(p.id)) {
+            byId.set(p.id, p);
+          }
+        }
+      } catch (_e) {}
+    }
+
+    // Also check master browser backup
+    try {
+      const masterRaw = localStorage.getItem('magicuwe_master_projects_v1');
+      if (masterRaw) {
+        const masterMap = JSON.parse(masterRaw) || {};
+        for (const p of Object.values(masterMap)) {
+          if (!p || !p.id || isExampleId(p.id)) continue;
+          const pEmail = (p.owner_email || '').toLowerCase().trim();
+          if ((emailLower && pEmail === emailLower) || (user.id && p.user_id === user.id)) {
+            const existing = byId.get(p.id);
+            if (!existing || new Date(p.updated_at || 0) > new Date(existing.updated_at || 0)) {
+              byId.set(p.id, p);
+            }
+          }
+        }
+      }
+    } catch (_e) {}
+
+    return Array.from(byId.values()).sort(
+      (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+    );
+  }
+
+  function saveLocalUserVault(user, projects) {
+    if (!user) return;
+    try {
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const cleanList = (projects || [])
+        .filter(p => p && p.id && !isExampleId(p.id))
+        .map(p => Object.assign({}, p, {
+          user_id: p.user_id || user.id,
+          owner_email: emailLower || p.owner_email || ''
+        }));
+
+      const payloadStr = JSON.stringify({
+        userId: user.id,
+        userEmail: user.email,
+        savedAt: new Date().toISOString(),
+        projects: cleanList
+      });
+
+      localStorage.setItem(getVaultKey(user), payloadStr);
+      if (user.id) {
+        localStorage.setItem(`magicuwe_vault_${user.id}`, payloadStr);
+      }
+
+      // Also update master browser backup
+      let masterMap = {};
+      try {
+        masterMap = JSON.parse(localStorage.getItem('magicuwe_master_projects_v1') || '{}') || {};
+      } catch (_e) {
+        masterMap = {};
+      }
+      for (const p of cleanList) {
+        if (p.model) {
+          masterMap[p.id] = p;
+        } else if (masterMap[p.id]?.model) {
+          masterMap[p.id] = Object.assign({}, masterMap[p.id], p, { model: masterMap[p.id].model });
+        } else {
+          masterMap[p.id] = p;
+        }
+      }
+      localStorage.setItem('magicuwe_master_projects_v1', JSON.stringify(masterMap));
+    } catch (e) {
+      console.warn('Could not save to local vault:', e);
+    }
+  }
+
+  function syncActiveModelToLocalVault() {
+    if (state.isExample || state.isReadOnly || !state.model) return;
+    const xmlContent = ENGINE.modelToXml(state.model);
+    if (state.user) {
+      if (!state.currentProjectId || isExampleId(state.currentProjectId)) {
+        state.currentProjectId = 'prj_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      }
+      const existingIdx = state.projects.findIndex(p => p.id === state.currentProjectId);
+      const record = {
+        id: state.currentProjectId,
+        user_id: state.user.id,
+        owner_email: (state.user.email || '').toLowerCase(),
+        name: state.model.name || 'Mi_Proyecto_UWE',
+        description: existingIdx >= 0 ? (state.projects[existingIdx].description || 'Proyecto UWE 3.0') : 'Proyecto UWE 3.0',
+        model: JSON.parse(JSON.stringify(state.model)),
+        xmlContent,
+        created_at: existingIdx >= 0 ? (state.projects[existingIdx].created_at || new Date().toISOString()) : new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      if (existingIdx >= 0) {
+        state.projects[existingIdx] = record;
+      } else {
+        state.projects.unshift(record);
+      }
+      saveLocalUserVault(state.user, state.projects);
+    } else {
+      try {
+        localStorage.setItem('magicuwe_guest_model', JSON.stringify({
+          model: state.model,
+          xmlContent,
+          updatedAt: new Date().toISOString()
+        }));
+      } catch (_e) {}
+    }
+  }
+
   async function loadUserProjects() {
     if (!state.user) return;
+
+    // 1. Instant load from local persistent vault for this user
+    let localVaultProjects = loadLocalUserVault(state.user);
+
+    // 1.1 Migrate any guest work from prior session into user vault
+    const guestModelRaw = localStorage.getItem('magicuwe_guest_model');
+    if (guestModelRaw) {
+      try {
+        const guestData = JSON.parse(guestModelRaw);
+        if (guestData && guestData.model) {
+          const guestName = guestData.model.name || 'Mi_Proyecto_UWE';
+          const newId = 'prj_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          const migratedPrj = {
+            id: newId,
+            user_id: state.user.id,
+            name: getUniqueProjectName(guestName),
+            description: 'Proyecto importado de sesión previa',
+            model: guestData.model,
+            xmlContent: guestData.xmlContent || ENGINE.modelToXml(guestData.model),
+            created_at: guestData.updatedAt || new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          migratedPrj.model.name = migratedPrj.name;
+          localVaultProjects.unshift(migratedPrj);
+          localStorage.removeItem('magicuwe_guest_model');
+          saveLocalUserVault(state.user, localVaultProjects);
+        }
+      } catch (_gErr) {
+        console.warn('Could not migrate guest model:', _gErr);
+      }
+    }
+
+    if (localVaultProjects.length > 0) {
+      state.projects = localVaultProjects;
+      renderProjectSelect();
+    }
+
     try {
+      // 2. Fetch projects from server
       const res = await apiFetch('/api/projects');
-      state.projects = res.projects || [];
+      const serverProjects = res.projects || [];
+
+      // 3. Merge server projects and local vault projects
+      const mergedMap = new Map();
+      for (const p of localVaultProjects) {
+        if (p && p.id) mergedMap.set(p.id, p);
+      }
+      for (const sp of serverProjects) {
+        if (!sp || !sp.id) continue;
+        const local = mergedMap.get(sp.id);
+        if (!local) {
+          mergedMap.set(sp.id, sp);
+        } else {
+          const spTime = new Date(sp.updated_at || 0).getTime();
+          const lpTime = new Date(local.updated_at || 0).getTime();
+          if (spTime >= lpTime) {
+            mergedMap.set(sp.id, Object.assign({}, local, sp, {
+              model: sp.model || local.model,
+              xmlContent: sp.xmlContent || local.xmlContent
+            }));
+          }
+        }
+      }
+
+      const mergedList = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
+      );
+      state.projects = mergedList;
+      saveLocalUserVault(state.user, state.projects);
+
+      // 4. Re-hydrate server if server is missing projects from local vault or has older versions (e.g. serverless cold restart / deploy)
+      const toSyncToServer = localVaultProjects.filter(lp => {
+        if (!lp || !lp.model) return false;
+        const sp = serverProjects.find(s => s.id === lp.id);
+        if (!sp) return true;
+        return new Date(lp.updated_at || 0).getTime() > new Date(sp.updated_at || 0).getTime();
+      });
+      if (toSyncToServer.length > 0) {
+        try {
+          await apiFetch('/api/projects/sync', {
+            method: 'POST',
+            body: JSON.stringify({ projects: toSyncToServer })
+          });
+        } catch (_syncErr) {
+          console.warn('Sync re-hydrate failed:', _syncErr);
+        }
+      }
+
       if (state.projects.length > 0 && !state.currentProjectId) {
         await loadProjectById(state.projects[0].id);
       }
       renderProjectSelect();
     } catch (e) {
-      console.warn('Could not load projects:', e);
+      console.warn('Could not load projects from server, relying on local vault:', e);
+      if (localVaultProjects.length > 0) {
+        state.projects = localVaultProjects;
+        if (!state.currentProjectId) {
+          await loadProjectById(state.projects[0].id);
+        }
+        renderProjectSelect();
+      }
     }
   }
 
-  async function loadProjectById(projectId) {
+  async function loadProjectById(projectId, isFromShareLink = false) {
+    let projData = null;
     try {
       const res = await apiFetch(`/api/projects/${projectId}`);
       if (res.project && res.project.model) {
-        state.currentProjectId = res.project.id;
-        state.model = res.project.model;
-        state.activeDiagramId = state.model.diagrams[0]?.id || '';
-        state.selectedNodeId = null;
-        if (state.selectedNodeIds) state.selectedNodeIds.clear();
-        state.selectedEdgeId = null;
-        renderAll();
-        showToast(`Proyecto "${res.project.name}" cargado desde SQLite`, 'success');
+        projData = res.project;
       }
     } catch (e) {
-      showToast(e.message, 'error');
+      console.warn(`Could not fetch project ${projectId} from server, checking local vault:`, e);
+    }
+
+    // Fallback to local user vault if server 404 or offline
+    if (!projData && state.user) {
+      const vaultList = loadLocalUserVault(state.user);
+      const foundInVault = vaultList.find(p => p.id === projectId);
+      if (foundInVault && foundInVault.model) {
+        projData = {
+          id: foundInVault.id,
+          user_id: state.user.id,
+          owner_name: state.user.name || 'Tú',
+          name: foundInVault.name,
+          description: foundInVault.description || '',
+          model: foundInVault.model,
+          xml: foundInVault.xmlContent || '',
+          updated_at: foundInVault.updated_at || new Date().toISOString()
+        };
+      }
+    }
+
+    if (!projData) {
+      showToast('No se pudo encontrar el proyecto.', 'error');
+      return;
+    }
+
+    state.currentProjectId = projData.id;
+    state.projectOwnerId = projData.user_id;
+    state.projectOwnerName = projData.owner_name || (state.user?.id === projData.user_id ? 'Tú' : 'el autor');
+    state.isExample = false;
+    state.exampleId = null;
+    state.model = projData.model;
+    state.activeDiagramId = state.model.diagrams[0]?.id || '';
+    state.selectedNodeId = null;
+    if (state.selectedNodeIds) state.selectedNodeIds.clear();
+    state.selectedEdgeId = null;
+    state.selectedNestedPropIdx = null;
+    state.pendingEdgeSourceId = null;
+    state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+
+    // Read-only permissions:
+    // Only the logged-in creator or owner of their own project can edit; external guests are strictly read-only!
+    const isOwner = Boolean(state.user && state.user.id && state.user.id === projData.user_id);
+    const isMyProjectInList = Boolean(state.projects && state.projects.some(p => p.id === projData.id));
+    if (isOwner || isMyProjectInList || (!isFromShareLink && (!projData.user_id || projData.user_id === 'public_guest'))) {
+      state.isReadOnly = false;
+      state.projectOwnerId = projData.user_id;
+      state.projectOwnerName = state.user?.name || 'Tú';
+    } else {
+      state.isReadOnly = true;
+      state.projectOwnerId = projData.user_id;
+      state.projectOwnerName = projData.owner_name || 'el autor';
+    }
+
+    lastSavedTime = new Date(projData.updated_at || Date.now());
+    changeCounter = 0;
+    updateSaveIndicatorUI();
+    updateReadOnlyBannerUI();
+    resetAutoSaveTimer();
+    renderAll();
+
+    if (state.isReadOnly) {
+      showToast(`Proyecto "${projData.name}" cargado en Modo Solo Lectura`, 'info');
+    } else {
+      showToast(`Tu proyecto "${projData.name}" se cargó con permisos de edición`, 'success');
     }
   }
 
-  async function saveCurrentProject() {
+  function updateReadOnlyBannerUI() {
+    const banner = document.getElementById('shared-readonly-banner');
+    const nameEl = document.getElementById('banner-proj-name');
+    const ownerEl = document.getElementById('banner-owner-name');
+    const dupBtn = document.getElementById('btn-banner-duplicate');
+
+    if (!banner) return;
+
+    // The shared read-only banner should ONLY show when viewing an external shared project
+    // saved in SQLite that belongs to someone else.
+    const isForeignSharedProject = Boolean(
+      state.isReadOnly &&
+      !state.isExample &&
+      state.currentProjectId &&
+      state.projectOwnerId &&
+      (!state.user || state.user.id !== state.projectOwnerId)
+    );
+
+    if (isForeignSharedProject) {
+      banner.style.display = 'flex';
+      if (nameEl) nameEl.textContent = `«${state.model.name || 'Proyecto UWE'}»`;
+      if (ownerEl) ownerEl.textContent = state.projectOwnerName || 'el autor';
+      if (dupBtn) {
+        dupBtn.onclick = () => promptDuplicateSharedProject();
+      }
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  // ==================== PROJECT NAME UNIQUENESS HELPERS ====================
+  function isProjectNameDuplicate(name, excludeProjectId = null) {
+    if (!name) return false;
+    const cleanName = name.trim().toLowerCase();
+
+    // Check against official examples
+    const exampleNames = [
+      'simple music portal',
+      'simple_music_portal',
+      'simple music portal (nora koch)',
+      'addressbook',
+      'addressbook uwe',
+      'proyecto en blanco'
+    ];
+    if (exampleNames.includes(cleanName)) {
+      return true;
+    }
+
+    // Check against user projects in SQLite / memory
+    if (state.projects && Array.isArray(state.projects)) {
+      return state.projects.some(p => {
+        if (excludeProjectId && p.id === excludeProjectId) return false;
+        return (p.name || '').trim().toLowerCase() === cleanName;
+      });
+    }
+
+    return false;
+  }
+
+  function getUniqueProjectName(baseName = 'Mi_Proyecto_UWE') {
+    let cleanBase = (baseName || 'Mi_Proyecto_UWE').trim().replace(/\s+/g, '_');
+    cleanBase = cleanBase.replace(/_\d+$/, '');
+    if (!cleanBase) cleanBase = 'Mi_Proyecto_UWE';
+
+    if (!isProjectNameDuplicate(cleanBase)) {
+      return cleanBase;
+    }
+    let counter = 1;
+    while (counter < 1000) {
+      const candidate = `${cleanBase}_${counter}`;
+      if (!isProjectNameDuplicate(candidate)) {
+        return candidate;
+      }
+      counter++;
+    }
+    return `${cleanBase}_${Date.now().toString().slice(-4)}`;
+  }
+
+  // ==================== AUTOSAVE & PERSISTENCE STATE ====================
+  let lastSavedTime = new Date();
+  let changeCounter = 0;
+  let isSavingInProgress = false;
+  let autoSaveTimerId = null;
+  let debouncedSaveTimerId = null;
+  let relativeTimeUpdaterId = null;
+  const AUTOSAVE_CHANGE_THRESHOLD = 10; // cada 10 cambios
+  const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000; // cada 5 minutos
+  const AUTOSAVE_DEBOUNCE_MS = 1800; // autoguardado rápido tras editar
+
+  function formatTimeAgo(date) {
+    if (!date) return 'hace un momento';
+    const now = Date.now();
+    const time = date instanceof Date ? date.getTime() : new Date(date).getTime();
+    const diffSec = Math.max(0, Math.floor((now - time) / 1000));
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 45) {
+      return 'hace un momento';
+    } else if (diffMin < 60) {
+      return diffMin === 1 ? 'hace 1 min' : `hace ${diffMin} min`;
+    } else if (diffHour < 24) {
+      return diffHour === 1 ? 'hace 1 h' : `hace ${diffHour} h`;
+    } else {
+      return diffDay === 1 ? 'hace 1 día' : `hace ${diffDay} días`;
+    }
+  }
+
+  function updateSaveIndicatorUI() {
+    const el = document.getElementById('autosave-text');
+    const iconEl = document.getElementById('autosave-icon');
+    const pill = document.getElementById('autosave-indicator');
+    const sbEl = document.getElementById('sb-autosave-status');
+    const readonlyBadge = document.getElementById('project-readonly-badge');
+    const btnSaveCloud = document.getElementById('btn-save-cloud');
+
+    if (readonlyBadge) {
+      if (state.isExample) {
+        readonlyBadge.textContent = '📖 Ejemplo Oficial';
+        readonlyBadge.style.display = 'inline-flex';
+      } else if (state.isReadOnly) {
+        readonlyBadge.textContent = '🔒 Solo Lectura';
+        readonlyBadge.style.display = 'inline-flex';
+      } else {
+        readonlyBadge.style.display = 'none';
+      }
+    }
+
+    if (btnSaveCloud) {
+      if (state.isExample) {
+        btnSaveCloud.textContent = '💾 Guardar Propio';
+        btnSaveCloud.title = 'Este ejemplo es de solo lectura. Haz clic para guardarlo como tu propio proyecto en SQLite.';
+      } else if (state.isReadOnly) {
+        btnSaveCloud.textContent = '📋 Guardar Copia';
+        btnSaveCloud.title = 'Estás viendo un proyecto compartido en modo solo lectura. Haz clic para guardar una copia en tu cuenta.';
+      } else {
+        btnSaveCloud.textContent = '💾 Guardar';
+        btnSaveCloud.title = 'Guardar cambios del modelo en SQLite (Nube)';
+      }
+    }
+
+    if (!el) return;
+
+    if (state.isReadOnly) {
+      if (pill) pill.className = 'autosave-pill readonly-protected';
+      if (iconEl) iconEl.textContent = '🔒';
+      if (state.isExample) {
+        el.textContent = 'Ejemplo Oficial — Solo Lectura';
+        if (pill) pill.title = 'Los ejemplos oficiales son de solo lectura. Haz clic en "Guardar Propio" para crear una copia en tus propios proyectos de SQLite.';
+        if (sbEl) sbEl.textContent = '🔒 Ejemplo Oficial UWE (Solo Lectura)';
+      } else {
+        el.textContent = 'Proyecto Compartido — Solo Lectura';
+        if (pill) pill.title = 'Este proyecto está protegido contra modificaciones no autorizadas. Solo el creador puede editarlo.';
+        if (sbEl) sbEl.textContent = '🔒 Proyecto Compartido (Solo Lectura)';
+      }
+      return;
+    }
+
+    if (isSavingInProgress) {
+      if (pill) pill.className = 'autosave-pill saving';
+      if (iconEl) iconEl.textContent = '⏳';
+      el.textContent = 'Guardando...';
+      if (sbEl) sbEl.textContent = '💾 Guardando proyecto...';
+      return;
+    }
+
+    const timeAgoStr = formatTimeAgo(lastSavedTime);
+    let displayText = `Guardado ${timeAgoStr}`;
+    let tooltip = `Último guardado: ${lastSavedTime ? lastSavedTime.toLocaleTimeString() : 'Nunca'}. Autoguardado cada 5 min o 10 cambios.`;
+
+    if (changeCounter > 0) {
+      displayText = `Guardado ${timeAgoStr} • ${changeCounter} ${changeCounter === 1 ? 'cambio' : 'cambios'}`;
+      tooltip += ` ${changeCounter} cambios pendientes por guardar en tu proyecto.`;
+      if (pill) pill.className = 'autosave-pill unsaved';
+      if (iconEl) iconEl.textContent = '●';
+    } else {
+      if (pill) pill.className = 'autosave-pill saved';
+      if (iconEl) iconEl.textContent = '☁️';
+    }
+
+    el.textContent = displayText;
+    if (pill) pill.title = tooltip;
+    if (sbEl) sbEl.textContent = `💾 ${displayText}`;
+  }
+
+  function markChange(count = 1) {
+    if (state.isReadOnly || state.isExample) {
+      // Never count changes or autosave on read-only projects
+      return;
+    }
+    changeCounter += count;
+    // Immediately persist the updated model into the browser's local vault
+    syncActiveModelToLocalVault();
+    updateSaveIndicatorUI();
+    if (changeCounter >= AUTOSAVE_CHANGE_THRESHOLD) {
+      if (debouncedSaveTimerId) clearTimeout(debouncedSaveTimerId);
+      triggerAutoSave('10_cambios');
+    } else {
+      if (debouncedSaveTimerId) clearTimeout(debouncedSaveTimerId);
+      debouncedSaveTimerId = setTimeout(() => {
+        triggerAutoSave('edicion_continua');
+      }, AUTOSAVE_DEBOUNCE_MS);
+    }
+  }
+
+  async function triggerAutoSave(reason = 'timer') {
+    if (isSavingInProgress) return;
+    if (changeCounter === 0) return;
+    if (state.isReadOnly || state.isExample) {
+      // Strictly READ-ONLY: never auto-save onto shared or official projects
+      return;
+    }
+    console.log(`[MagicUWE] Disparando autoguardado (${reason}). Cambios acumulados: ${changeCounter}`);
+    await performSave(true);
+  }
+
+  function promptCreateNewBlankProject() {
+    const modal = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-body');
+    const title = document.getElementById('modal-title');
+    if (!modal || !content) return;
+
+    const defaultSuggestedName = getUniqueProjectName('Mi_Proyecto_UWE');
+
+    title.innerHTML = `<img src="${getIcon('UWEicon.png')}" width="16" height="16" /> Crear Nuevo Proyecto Propio (UWE 3.0)`;
+
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:12px;padding:4px;max-width:480px;">
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:4px;padding:10px 12px;font-size:11.5px;color:#166534;line-height:1.45;">
+          <strong>✨ Nuevo Proyecto Propio UWE:</strong><br />
+          Inicia un nuevo lienzo con la estructura de paquetes estándar de UWE (Requisitos, Contenido, Navegación, Presentación y Proceso). Tendrás permisos completos de edición y guardado.
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Nombre del Proyecto:
+          </label>
+          <input type="text" id="input-new-project-name" class="md-input" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 8px;" value="${escapeHtml(defaultSuggestedName)}" />
+          <div id="new-project-name-error" style="display:none;color:#DC2626;font-size:11px;margin-top:4px;font-weight:bold;"></div>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Diagrama Inicial:
+          </label>
+          <select id="select-initial-diagram" class="md-select" style="width:100%;box-sizing:border-box;font-size:11.5px;padding:5px 8px;">
+            <option value="Requirements" selected>📋 Requisitos (Casos de Uso UWE)</option>
+            <option value="Content">🏛️ Modelo de Contenido (Clases / Entidades)</option>
+            <option value="Navigation">🧭 Modelo de Navegación (Nodos y Enlaces)</option>
+            <option value="Presentation">🖥️ Modelo de Presentación (Vistas y Formularios)</option>
+          </select>
+        </div>
+
+        ${!state.user ? `
+          <div style="background:#FFF9EB;border:1px solid #FFE0A3;border-radius:4px;padding:8px 10px;font-size:11px;color:#855A00;">
+            💡 <em>Consejo:</em> Puedes modelar libremente en el navegador. Para sincronizarlo permanentemente en tu base de datos SQLite en la nube, puedes iniciar sesión en cualquier momento.
+          </div>
+        ` : ''}
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button class="md-btn" id="btn-cancel-new-proj">Cancelar</button>
+          <button class="md-btn md-btn-primary" id="btn-confirm-new-proj" style="font-weight:bold;padding:5px 14px;">
+            ➕ Crear Proyecto
+          </button>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+
+    const inputName = document.getElementById('input-new-project-name');
+    const errEl = document.getElementById('new-project-name-error');
+    if (inputName) {
+      inputName.focus();
+      inputName.select();
+
+      inputName.oninput = () => {
+        const val = inputName.value.trim();
+        if (!val) {
+          errEl.style.display = 'block';
+          errEl.textContent = 'Por favor ingresa un nombre para el proyecto.';
+        } else if (isProjectNameDuplicate(val)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${val}». Elige un nombre único.`;
+        } else {
+          errEl.style.display = 'none';
+        }
+      };
+    }
+
+    const cancelBtn = document.getElementById('btn-cancel-new-proj');
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+        renderProjectSelect();
+      };
+    }
+
+    const confirmBtn = document.getElementById('btn-confirm-new-proj');
+    if (confirmBtn) {
+      confirmBtn.onclick = async () => {
+        const name = (inputName?.value || '').trim();
+        if (!name) {
+          errEl.style.display = 'block';
+          errEl.textContent = 'Por favor ingresa un nombre para el proyecto.';
+          inputName.focus();
+          return;
+        }
+
+        if (isProjectNameDuplicate(name)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${name}». Elige un nombre único.`;
+          inputName.focus();
+          return;
+        }
+
+        modal.style.display = 'none';
+
+        // Clear share URL parameters if any
+        const url = new URL(window.location.href);
+        url.searchParams.delete('share');
+        url.searchParams.delete('p');
+        url.searchParams.delete('example');
+        window.history.replaceState({}, '', url.pathname);
+
+        state.model = ENGINE.createBlankUWEModel(name);
+        state.isExample = false;
+        state.exampleId = null;
+        state.currentProjectId = null;
+        state.projectOwnerId = state.user?.id || null;
+        state.projectOwnerName = state.user?.name || 'Tú';
+        state.isReadOnly = false; // Strictly editable!
+
+        const diagType = document.getElementById('select-initial-diagram')?.value || 'Requirements';
+        if (diagType !== 'Requirements' && state.model.diagrams[0]) {
+          state.model.diagrams[0].type = diagType;
+          state.model.diagrams[0].name = `${name}_${diagType}`;
+        }
+        state.activeDiagramId = state.model.diagrams[0]?.id || 'dg_req_1';
+        state.selectedNodeId = null;
+        if (state.selectedNodeIds) state.selectedNodeIds.clear();
+        state.selectedEdgeId = null;
+
+        // Immediately persist newly created project in local vault + SQLite server
+        syncActiveModelToLocalVault();
+        await performSave(true);
+
+        lastSavedTime = new Date();
+        changeCounter = 0;
+        updateSaveIndicatorUI();
+        updateReadOnlyBannerUI(); // Strictly hides the read-only guest banner
+        resetAutoSaveTimer();
+        renderAll();
+        showToast(`Proyecto propio "${name}" creado y guardado con éxito.`, 'success');
+      };
+    }
+  }
+
+  function promptSaveAsOwnProject() {
+    const modal = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-body');
+    const title = document.getElementById('modal-title');
+    if (!modal || !content) return;
+
+    const baseName = (state.model.name || 'Simple_Music_Portal').replace(/\s+/g, '_');
+    const rawOwnName = baseName.startsWith('Mi_') || baseName.startsWith('Mi ')
+      ? baseName
+      : `Mi_${baseName}`;
+    const defaultOwnName = getUniqueProjectName(rawOwnName);
+
+    title.innerHTML = `<img src="${getIcon('UWEicon.png')}" width="16" height="16" /> Guardar como Proyecto Propio (SQLite)`;
+
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:12px;padding:4px;max-width:480px;">
+        <div style="background:#FFF9EB;border:1px solid #FFE0A3;border-radius:4px;padding:10px 12px;font-size:11.5px;color:#855A00;line-height:1.45;">
+          <strong>📖 Ejemplo Oficial de Solo Lectura:</strong><br />
+          Los ejemplos oficiales de UWE (Nora Koch, Sevilla 2010) son de <strong>solo lectura</strong> para preservar su integridad como casos de estudio de referencia.
+          <br /><br />
+          Para guardar tus modificaciones y continuar modelando, guárdalo como un <strong>proyecto propio</strong> en tu espacio SQLite:
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Nombre de tu Proyecto Propio:
+          </label>
+          <input type="text" id="input-own-project-name" class="md-input" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 8px;" value="${escapeHtml(defaultOwnName)}" />
+          <div id="own-project-name-error" style="display:none;color:#DC2626;font-size:11px;margin-top:4px;font-weight:bold;"></div>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Descripción:
+          </label>
+          <input type="text" id="input-own-project-desc" class="md-input" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 8px;" value="Proyecto propio basado en ${escapeHtml(state.model.name)}" />
+        </div>
+
+        ${!state.user ? `
+          <div style="background:#EBF3FB;border:1px solid #B8D6F5;border-radius:4px;padding:8px 10px;font-size:11px;color:#1B4E80;">
+            💡 <em>Nota:</em> Inicia sesión con tu cuenta de Google / Gmail para almacenar este proyecto en tu base de datos SQLite en la nube.
+          </div>
+        ` : ''}
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button class="md-btn" id="btn-cancel-save-own">Cancelar</button>
+          <button class="md-btn md-btn-primary" id="btn-confirm-save-own" style="font-weight:bold;padding:5px 14px;">
+            💾 Guardar en Mis Proyectos
+          </button>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+
+    const inputName = document.getElementById('input-own-project-name');
+    const errEl = document.getElementById('own-project-name-error');
+    if (inputName) {
+      inputName.focus();
+      inputName.select();
+
+      inputName.oninput = () => {
+        const val = inputName.value.trim();
+        if (!val) {
+          errEl.style.display = 'block';
+          errEl.textContent = 'Por favor ingresa un nombre para el proyecto.';
+        } else if (isProjectNameDuplicate(val)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${val}». Elige un nombre único.`;
+        } else {
+          errEl.style.display = 'none';
+        }
+      };
+    }
+
+    const cancelBtn = document.getElementById('btn-cancel-save-own');
+    if (cancelBtn) cancelBtn.onclick = () => { modal.style.display = 'none'; };
+
+    const confirmBtn = document.getElementById('btn-confirm-save-own');
+    if (confirmBtn) {
+      confirmBtn.onclick = async () => {
+        const newName = (inputName?.value || '').trim() || defaultOwnName;
+        const newDesc = (document.getElementById('input-own-project-desc')?.value || '').trim();
+
+        if (isProjectNameDuplicate(newName)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${newName}». Elige un nombre único.`;
+          inputName.focus();
+          return;
+        }
+
+        if (!state.user) {
+          modal.style.display = 'none';
+          openAuthModal({ isFirstVisit: false });
+          showToast('Inicia sesión para guardar tu proyecto propio en SQLite', 'info');
+          return;
+        }
+
+        modal.style.display = 'none';
+        state.model.name = newName;
+        state.isExample = false;
+        state.exampleId = null;
+        state.currentProjectId = null;
+        state.isReadOnly = false;
+        state.projectOwnerId = state.user.id;
+        state.projectOwnerName = state.user.name || state.user.email;
+
+        try {
+          const xmlContent = ENGINE.modelToXml(state.model);
+          const res = await apiFetch('/api/projects', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: newName,
+              description: newDesc,
+              model: state.model,
+              xmlContent
+            })
+          });
+
+          state.currentProjectId = res.project.id;
+          state.isExample = false;
+          state.exampleId = null;
+          state.isReadOnly = false;
+          state.projectOwnerId = state.user.id;
+          state.projectOwnerName = state.user.name || state.user.email;
+
+          // Save into local vault
+          const newPrjRecord = {
+            id: res.project.id,
+            user_id: state.user.id,
+            name: newName,
+            description: newDesc,
+            model: JSON.parse(JSON.stringify(state.model)),
+            xmlContent,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          const existingIdx = state.projects.findIndex(p => p.id === res.project.id);
+          if (existingIdx >= 0) state.projects[existingIdx] = newPrjRecord;
+          else state.projects.unshift(newPrjRecord);
+          saveLocalUserVault(state.user, state.projects);
+
+          await loadUserProjects();
+          lastSavedTime = new Date();
+          changeCounter = 0;
+          updateSaveIndicatorUI();
+          updateReadOnlyBannerUI();
+          resetAutoSaveTimer();
+          renderAll();
+          showToast(`Proyecto propio "${newName}" guardado exitosamente en tu cuenta SQLite.`, 'success');
+        } catch (e) {
+          showToast(`Error al guardar proyecto propio: ${e.message}`, 'error');
+        }
+      };
+    }
+  }
+
+  function promptDuplicateSharedProject() {
+    const modal = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-body');
+    const title = document.getElementById('modal-title');
+    if (!modal || !content) return;
+
+    const baseName = (state.model.name || 'Proyecto_UWE').replace(/\s+/g, '_');
+    const defaultCopyName = getUniqueProjectName(`${baseName}_Copia`);
+
+    title.innerHTML = `<img src="${getIcon('UWEicon.png')}" width="16" height="16" /> Guardar una Copia Editable (SQLite)`;
+
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:12px;padding:4px;max-width:500px;">
+        <div style="background:#FFF9EB;border:1px solid #FFE0A3;border-radius:4px;padding:10px 12px;font-size:11.5px;color:#855A00;line-height:1.45;">
+          <strong>🔒 Proyecto Compartido en Modo Solo Lectura:</strong><br />
+          Estás viendo el proyecto de <strong>${escapeHtml(state.projectOwnerName || 'otro usuario')}</strong>.
+          <br /><br />
+          Para realizar modificaciones, añadir diagramas o editar propiedades, guarda una <strong>copia editable</strong> en tus propios proyectos de SQLite:
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Nombre de tu Copia:
+          </label>
+          <input type="text" id="input-dup-project-name" class="md-input" style="width:100%;box-sizing:border-box;font-size:12px;padding:6px 8px;" value="${escapeHtml(defaultCopyName)}" />
+          <div id="dup-project-name-error" style="display:none;color:#DC2626;font-size:11px;margin-top:4px;font-weight:bold;"></div>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:5px;color:#333;">
+            Descripción:
+          </label>
+          <input type="text" id="input-dup-project-desc" class="md-input" style="width:100%;box-sizing:border-box;font-size:11px;padding:5px 8px;" value="Copia de proyecto compartido ${escapeHtml(state.model.name || '')}" />
+        </div>
+
+        ${!state.user ? `
+          <div style="background:#EBF3FB;border:1px solid #B8D6F5;border-radius:4px;padding:8px 10px;font-size:11px;color:#1B4E80;">
+            💡 <em>Atención:</em> Para guardar tu copia en la nube SQLite, se te solicitará iniciar sesión con tu cuenta.
+          </div>
+        ` : ''}
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button class="md-btn" id="btn-cancel-dup">Cancelar</button>
+          <button class="md-btn md-btn-primary" id="btn-confirm-dup" style="font-weight:bold;padding:5px 14px;">
+            📋 Crear y Guardar Mi Copia
+          </button>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+
+    const inputName = document.getElementById('input-dup-project-name');
+    const errEl = document.getElementById('dup-project-name-error');
+    if (inputName) {
+      inputName.focus();
+      inputName.select();
+
+      inputName.oninput = () => {
+        const val = inputName.value.trim();
+        if (!val) {
+          errEl.style.display = 'block';
+          errEl.textContent = 'Por favor ingresa un nombre para la copia.';
+        } else if (isProjectNameDuplicate(val)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${val}». Elige un nombre único.`;
+        } else {
+          errEl.style.display = 'none';
+        }
+      };
+    }
+
+    const cancelBtn = document.getElementById('btn-cancel-dup');
+    if (cancelBtn) cancelBtn.onclick = () => { modal.style.display = 'none'; };
+
+    const confirmBtn = document.getElementById('btn-confirm-dup');
+    if (confirmBtn) {
+      confirmBtn.onclick = async () => {
+        const newName = (inputName?.value || '').trim() || defaultCopyName;
+        const newDesc = (document.getElementById('input-dup-project-desc')?.value || '').trim();
+
+        if (isProjectNameDuplicate(newName)) {
+          errEl.style.display = 'block';
+          errEl.textContent = `⚠️ Ya existe un proyecto con el nombre «${newName}». Elige un nombre único.`;
+          inputName.focus();
+          return;
+        }
+
+        if (!state.user) {
+          modal.style.display = 'none';
+          openAuthModal({ isFirstVisit: false });
+          showToast('Inicia sesión para guardar tu copia en tu cuenta SQLite', 'info');
+          return;
+        }
+
+        modal.style.display = 'none';
+        const clonedModel = JSON.parse(JSON.stringify(state.model));
+        clonedModel.name = newName;
+
+        try {
+          const xmlContent = ENGINE.modelToXml(clonedModel);
+          const res = await apiFetch('/api/projects', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: newName,
+              description: newDesc,
+              model: clonedModel,
+              xmlContent
+            })
+          });
+
+          state.model = clonedModel;
+          state.currentProjectId = res.project.id;
+          state.projectOwnerId = state.user.id;
+          state.projectOwnerName = state.user.name || state.user.email;
+          state.isReadOnly = false;
+          state.isExample = false;
+          state.exampleId = null;
+
+          // Save into local vault
+          const newCopyRecord = {
+            id: res.project.id,
+            user_id: state.user.id,
+            name: newName,
+            description: newDesc,
+            model: JSON.parse(JSON.stringify(clonedModel)),
+            xmlContent,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          const existingIdx = state.projects.findIndex(p => p.id === res.project.id);
+          if (existingIdx >= 0) state.projects[existingIdx] = newCopyRecord;
+          else state.projects.unshift(newCopyRecord);
+          saveLocalUserVault(state.user, state.projects);
+
+          // Remove ?share= from URL address bar
+          const url = new URL(window.location.href);
+          url.searchParams.delete('share');
+          url.searchParams.delete('p');
+          window.history.replaceState({}, '', url.pathname);
+
+          await loadUserProjects();
+          lastSavedTime = new Date();
+          changeCounter = 0;
+          updateSaveIndicatorUI();
+          updateReadOnlyBannerUI();
+          resetAutoSaveTimer();
+          renderAll();
+          showToast(`¡Copia "${newName}" creada con éxito! Ahora tienes permisos completos de edición.`, 'success');
+        } catch (e) {
+          showToast(`Error al guardar copia: ${e.message}`, 'error');
+        }
+      };
+    }
+  }
+
+  async function openShareModal() {
+    const modal = document.getElementById('modal-overlay');
+    const content = document.getElementById('modal-body');
+    const title = document.getElementById('modal-title');
+    if (!modal || !content) return;
+
+    // If currently on an unsaved new project
+    if (!state.currentProjectId && !state.isExample) {
+      showToast('Por favor guarda primero tu proyecto para poder generar un enlace público', 'info');
+      await performSave(false);
+      if (!state.currentProjectId) return;
+    }
+
+    let shareUrl = '';
+    const projName = state.model.name || 'Proyecto UWE';
+
+    if (state.isExample) {
+      shareUrl = `${window.location.origin}/?example=${encodeURIComponent(state.exampleId || 'music_portal')}`;
+    } else {
+      shareUrl = `${window.location.origin}/?share=${encodeURIComponent(state.currentProjectId)}`;
+    }
+
+    title.innerHTML = `<img src="${getIcon('UWEicon.png')}" width="16" height="16" /> Compartir Proyecto (Enlace Público UWE)`;
+
+    content.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:14px;padding:6px;max-width:520px;">
+        <div style="background:#F0F7FF;border:1px solid #C8E1FF;border-radius:6px;padding:12px;font-size:12px;color:#1A4068;line-height:1.5;">
+          <strong>🔗 Enlace Público de Visualización (Solo Lectura):</strong><br />
+          Cualquier persona con este enlace puede abrir y explorar el proyecto <strong>«${escapeHtml(projName)}»</strong> como invitado, visualizar todos sus diagramas y descargar imágenes o código XML.
+          <br /><br />
+          <span style="display:inline-flex;align-items:center;gap:4px;color:#0D6832;font-weight:bold;">
+            🛡️ Protección total:
+          </span>
+          Nadie más que tú (el autor logueado) puede realizar cambios. Los invitados únicamente tienen permisos de lectura y no pueden sobrescribir tu trabajo.
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:bold;margin-bottom:6px;color:#333;">
+            Enlace para compartir:
+          </label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="share-link-input" class="md-input" readonly value="${escapeHtml(shareUrl)}" style="flex:1;font-size:12px;padding:6px 8px;background:#FFF;cursor:text;" />
+            <button class="md-btn md-btn-primary" id="btn-copy-share-link" style="white-space:nowrap;padding:6px 12px;font-weight:bold;">
+              📋 Copiar Enlace
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+          <a href="${escapeHtml(shareUrl)}" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;color:#316AC5;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+            ↗ Abrir en pestaña nueva para previsualizar como invitado
+          </a>
+          <button class="md-btn" id="btn-close-share-modal" style="padding:5px 14px;">Cerrar</button>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = 'flex';
+
+    const shareInput = document.getElementById('share-link-input');
+    if (shareInput) {
+      shareInput.focus();
+      shareInput.select();
+    }
+
+    const closeBtn = document.getElementById('btn-close-share-modal');
+    if (closeBtn) closeBtn.onclick = () => { modal.style.display = 'none'; };
+
+    const copyBtn = document.getElementById('btn-copy-share-link');
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          copyBtn.textContent = '¡Copiado! ✓';
+          copyBtn.style.background = '#16A34A';
+          showToast('Enlace público copiado al portapapeles', 'success');
+          setTimeout(() => {
+            copyBtn.textContent = '📋 Copiar Enlace';
+            copyBtn.style.background = '';
+          }, 2500);
+        } catch (_e) {
+          if (shareInput) {
+            shareInput.focus();
+            shareInput.select();
+            document.execCommand('copy');
+            copyBtn.textContent = '¡Copiado! ✓';
+            showToast('Enlace público copiado al portapapeles', 'success');
+          }
+        }
+      };
+    }
+  }
+
+  async function performSave(isAutoSave = false) {
+    if (isSavingInProgress) return;
+    if (state.isExample) {
+      if (!isAutoSave) {
+        promptSaveAsOwnProject();
+      }
+      return;
+    }
+    if (state.isReadOnly) {
+      if (!isAutoSave) {
+        promptDuplicateSharedProject();
+      }
+      return;
+    }
+
+    isSavingInProgress = true;
+    updateSaveIndicatorUI();
+
     // If in XML mode and dirty, apply XML first
     if (state.xmlDirty) {
       applyXmlFromEditor(true);
     }
-    if (!state.user) {
-      openAuthModal();
-      showToast('Inicia sesión con tu cuenta Gmail o correo para guardar en la nube SQLite', 'info');
-      return;
-    }
+
     try {
       const xmlContent = ENGINE.modelToXml(state.model);
-      if (state.currentProjectId) {
-        const res = await apiFetch(`/api/projects/${state.currentProjectId}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            name: state.model.name,
-            model: state.model,
-            xmlContent
-          })
-        });
-        showToast(`Proyecto "${res.project.name}" guardado en SQLite`, 'success');
+
+      if (state.user) {
+        if (state.currentProjectId) {
+          try {
+            const res = await apiFetch(`/api/projects/${state.currentProjectId}`, {
+              method: 'PUT',
+              body: JSON.stringify({
+                name: state.model.name,
+                model: state.model,
+                xmlContent
+              })
+            });
+            state.model.name = res.project.name || state.model.name;
+          } catch (netErr) {
+            console.warn('Network save failed, saving to local vault:', netErr);
+          }
+          state.projectOwnerId = state.user.id;
+          state.isReadOnly = false;
+          updateReadOnlyBannerUI();
+        } else {
+          if (isProjectNameDuplicate(state.model.name)) {
+            state.model.name = getUniqueProjectName(state.model.name);
+          }
+          const generatedId = 'prj_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+          state.currentProjectId = generatedId;
+          try {
+            const res = await apiFetch('/api/projects', {
+              method: 'POST',
+              body: JSON.stringify({
+                id: generatedId,
+                name: state.model.name,
+                description: 'Proyecto UWE 3.0',
+                model: state.model,
+                xmlContent
+              })
+            });
+            if (res.project?.id) {
+              state.currentProjectId = res.project.id;
+            }
+          } catch (netErr) {
+            console.warn('Network create failed, keeping local id in vault:', netErr);
+          }
+          state.projectOwnerId = state.user.id;
+          state.projectOwnerName = state.user.name || state.user.email;
+          state.isReadOnly = false;
+          updateReadOnlyBannerUI();
+        }
+
+        // Always update project in memory list and in localStorage user vault!
+        const existingIdx = state.projects.findIndex(p => p.id === state.currentProjectId);
+        const record = {
+          id: state.currentProjectId,
+          user_id: state.user.id,
+          name: state.model.name,
+          description: 'Proyecto UWE 3.0',
+          model: JSON.parse(JSON.stringify(state.model)),
+          xmlContent,
+          created_at: existingIdx >= 0 ? (state.projects[existingIdx].created_at || new Date().toISOString()) : new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        if (existingIdx >= 0) {
+          state.projects[existingIdx] = record;
+        } else {
+          state.projects.unshift(record);
+        }
+        saveLocalUserVault(state.user, state.projects);
+        renderProjectSelect();
       } else {
-        const res = await apiFetch('/api/projects', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: state.model.name,
-            description: 'Proyecto UWE 3.0',
-            model: state.model,
-            xmlContent
-          })
-        });
-        state.currentProjectId = res.project.id;
-        showToast(`Proyecto "${res.project.name}" creado en SQLite`, 'success');
+        localStorage.setItem('magicuwe_guest_model', JSON.stringify({
+          model: state.model,
+          xmlContent,
+          updatedAt: new Date().toISOString()
+        }));
+
+        if (!isAutoSave) {
+          openAuthModal({ isFirstVisit: false });
+          showToast('Guardado localmente. Para guardar en la nube SQLite, inicia sesión.', 'info');
+        }
       }
-      await loadUserProjects();
+
+      lastSavedTime = new Date();
+      changeCounter = 0;
+      resetAutoSaveTimer();
+
+      if (!isAutoSave) {
+        showToast(`Proyecto "${state.model.name}" guardado exitosamente`, 'success');
+      }
     } catch (e) {
-      showToast(`Error al guardar: ${e.message}`, 'error');
+      console.warn('Error al guardar proyecto:', e);
+      if (!isAutoSave) {
+        showToast(`Error al guardar: ${e.message}`, 'error');
+      }
+    } finally {
+      isSavingInProgress = false;
+      updateSaveIndicatorUI();
     }
+  }
+
+  async function saveCurrentProject() {
+    if (state.isExample) {
+      promptSaveAsOwnProject();
+      return;
+    }
+    if (state.isReadOnly) {
+      promptDuplicateSharedProject();
+      return;
+    }
+    await performSave(false);
+  }
+
+  function resetAutoSaveTimer() {
+    if (autoSaveTimerId) clearInterval(autoSaveTimerId);
+    autoSaveTimerId = setInterval(() => {
+      if (changeCounter > 0) {
+        triggerAutoSave('5_minutos');
+      }
+    }, AUTOSAVE_INTERVAL_MS);
+  }
+
+  function startRelativeTimeUpdater() {
+    if (relativeTimeUpdaterId) clearInterval(relativeTimeUpdaterId);
+    relativeTimeUpdaterId = setInterval(() => {
+      updateSaveIndicatorUI();
+    }, 10000);
   }
 
   // ==================== RENDERING: TOP BAR & AUTH ====================
@@ -208,14 +1389,25 @@
         </div>
       `;
       document.getElementById('btn-logout').onclick = () => {
+        // Guarantee current active model & projects are saved to the user vault before logout
+        syncActiveModelToLocalVault();
+        if (state.user && state.projects.length > 0) {
+          saveLocalUserVault(state.user, state.projects);
+        }
         state.user = null;
         state.token = null;
         state.projects = [];
         state.currentProjectId = null;
+        state.model = ENGINE.createMusicPortalDemoModel ? ENGINE.createMusicPortalDemoModel() : ENGINE.createAddressBookDemoModel();
+        state.isExample = true;
+        state.exampleId = 'music_portal';
+        state.isReadOnly = true;
         localStorage.removeItem('magicuwe_token');
         renderAuthBar();
         renderProjectSelect();
-        showToast('Sesión cerrada', 'info');
+        updateReadOnlyBannerUI();
+        renderAll();
+        showToast('Sesión cerrada. Tus proyectos están guardados de forma segura en tu cuenta.', 'info');
       };
     } else {
       container.innerHTML = `
@@ -231,20 +1423,57 @@
   function renderProjectSelect() {
     const sel = document.getElementById('project-selector');
     if (!sel) return;
-    let html = `<option value="__local__">📄 ${escapeHtml(state.model.name)} (Sesión actual)</option>`;
-    for (const p of state.projects) {
-      const selected = p.id === state.currentProjectId ? 'selected' : '';
-      html += `<option value="${p.id}" ${selected}>🗄️ ${escapeHtml(p.name)} (SQLite)</option>`;
+    let html = '';
+
+    if (state.projects.length > 0) {
+      html += `<optgroup label="👤 Mis Proyectos Propios (SQLite)">`;
+      for (const p of state.projects) {
+        const selected = (!state.isExample && p.id === state.currentProjectId) ? 'selected' : '';
+        html += `<option value="${p.id}" ${selected}>💾 ${escapeHtml(p.name)}</option>`;
+      }
+      html += `</optgroup>`;
     }
-    html += `<optgroup label="Ejemplos Oficiales UWE">`;
-    html += `<option value="__example_music__">🎵 Simple Music Portal (UWE Sevilla 2010)</option>`;
-    html += `<option value="__example_addressbook__">📇 Libreta de Contactos (AddressBook Tutorial)</option>`;
-    html += `</optgroup>`;
-    html += `<optgroup label="Plantillas">`;
-    html += `<option value="__blank__">➕ Crear Proyecto UWE en Blanco...</option>`;
+
+    if (state.currentProjectId && !state.projects.some(p => p.id === state.currentProjectId)) {
+      html += `<optgroup label="🔗 Proyecto Compartido">`;
+      html += `<option value="${state.currentProjectId}" selected>🔗 ${escapeHtml(state.model.name)} (${state.isReadOnly ? 'Solo Lectura' : 'Editable'})</option>`;
+      html += `</optgroup>`;
+    }
+
+    if (!state.currentProjectId && !state.isExample) {
+      html += `<optgroup label="📄 Proyecto Local Actual">`;
+      html += `<option value="__local__" selected>📄 ${escapeHtml(state.model.name)} (Mi Proyecto Local)</option>`;
+      html += `</optgroup>`;
+    }
+
+    html += `<optgroup label="📖 Ejemplos Oficiales UWE (Solo Lectura)">`;
+    const isMusicSel = state.isExample && state.exampleId === 'music_portal';
+    const isAddrSel = state.isExample && state.exampleId === 'addressbook';
+    html += `<option value="__example_music__" ${isMusicSel ? 'selected' : ''}>🎵 Simple Music Portal (Solo Lectura)</option>`;
+    html += `<option value="__example_addressbook__" ${isAddrSel ? 'selected' : ''}>📇 AddressBook UWE (Solo Lectura)</option>`;
     html += `<option value="__open_modal__">✨ Explorar Todos los Ejemplos y Plantillas...</option>`;
     html += `</optgroup>`;
+
+    html += `<optgroup label="Plantillas y Archivos (.sqlite.db)">`;
+    html += `<option value="__blank__">➕ Crear Proyecto Propio en Blanco...</option>`;
+    html += `<option value="__import_sqlite__">📂 Importar Proyecto (.sqlite.db)...</option>`;
+    html += `<option value="__export_sqlite__">💾 Exportar Proyecto Actual (.sqlite.db)...</option>`;
+    html += `</optgroup>`;
+
     sel.innerHTML = html;
+
+    const readonlyBadge = document.getElementById('project-readonly-badge');
+    if (readonlyBadge) {
+      if (state.isExample) {
+        readonlyBadge.textContent = '📖 Ejemplo Oficial';
+        readonlyBadge.style.display = 'inline-flex';
+      } else if (state.isReadOnly) {
+        readonlyBadge.textContent = '🔒 Solo Lectura';
+        readonlyBadge.style.display = 'inline-flex';
+      } else {
+        readonlyBadge.style.display = 'none';
+      }
+    }
   }
 
   // ==================== CONTAINMENT TREE & DIAGRAMS ====================
@@ -429,11 +1658,13 @@
         </button>
       `;
     }
-    html += `
-      <button class="dg-tab dg-tab-add" id="btn-new-diagram" title="Crear nuevo diagrama UWE 3.0">
-        + Diagrama
-      </button>
-    `;
+    if (!state.isReadOnly) {
+      html += `
+        <button class="dg-tab dg-tab-add" id="btn-new-diagram" title="Crear nuevo diagrama UWE 3.0">
+          + Diagrama
+        </button>
+      `;
+    }
     tabsEl.innerHTML = html;
 
     tabsEl.querySelectorAll('.dg-tab[data-dg-id]').forEach(btn => {
@@ -453,6 +1684,18 @@
   }
 
   // ==================== PALETTE TOOLBAR (MagicDraw 18 Contextual Palette) ====================
+  // Helper: Find a tool by its unique id across all UWE diagram types
+  function findToolById(toolId) {
+    if (!toolId) return null;
+    for (const dt of Object.values(ENGINE.DIAGRAM_TYPES)) {
+      if (dt.tools) {
+        const found = dt.tools.find(t => t.id === toolId);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
   function getToolIcon(tool) {
     if (tool.icon) return getIcon(tool.icon);
     if (tool.stereotype) {
@@ -520,6 +1763,10 @@
   }
 
   function placeNewNodeOnDiagram(tool, x, y) {
+    if (state.isReadOnly) {
+      showToast('Modo solo lectura: solo el creador del proyecto puede añadir elementos.', 'warning');
+      return;
+    }
     const dg = getActiveDiagram();
     if (!dg) return;
     const newElId = 'el_' + Math.random().toString(36).slice(2, 9);
@@ -562,6 +1809,7 @@
     hideToolFollower();
     showToast(`Elemento «${newEl.stereotype || newEl.umlType}» añadido al diagrama`, 'success');
     renderAll();
+    markChange();
   }
 
   function renderPalette() {
@@ -569,55 +1817,107 @@
     if (!palEl) return;
     const dg = getActiveDiagram();
     if (!dg) return;
-    const dgDef = ENGINE.DIAGRAM_TYPES[dg.diagramType] || ENGINE.DIAGRAM_TYPES.CONTENT;
+    const activeDgDef = ENGINE.DIAGRAM_TYPES[dg.diagramType] || ENGINE.DIAGRAM_TYPES.CONTENT;
 
-    // Normalize tools: uppercase type ('NODE' | 'EDGE' | 'NESTED_PROPERTY'), ensure unique id, clear shortcuts
-    dgDef.tools.forEach((tool, idx) => {
-      const rawType = (tool.type || 'node').toLowerCase();
-      if (rawType === 'node') tool.type = 'NODE';
-      else if (rawType === 'edge') tool.type = 'EDGE';
-      else if (rawType === 'property') tool.type = 'NESTED_PROPERTY';
-      else tool.type = rawType.toUpperCase();
-
-      if (!tool.id) {
-        tool.id = `tool_${dgDef.id || dg.diagramType}_${tool.stereotype || tool.umlType || 'tool'}_${idx}`;
+    // Helper to generate tool buttons HTML for a diagram definition
+    function renderToolsHtml(tools) {
+      let h = '';
+      for (const tool of tools) {
+        if (tool.type === 'SEPARATOR') {
+          h += `<div class="palette-separator">${escapeHtml(tool.label)}</div>`;
+          continue;
+        }
+        const isActive = state.activeTool && state.activeTool.id === tool.id;
+        const iconUrl = getToolIcon(tool);
+        const isRoDisabled = Boolean(state.isReadOnly && tool.type !== 'SELECT');
+        const isDraggable = (tool.type === 'NODE' || tool.type === 'NESTED_PROPERTY') && !isRoDisabled;
+        h += `
+          <button class="palette-btn ${isActive ? 'active' : ''} ${isRoDisabled ? 'readonly-disabled' : ''}" data-tool-id="${tool.id}" ${isDraggable ? 'draggable="true"' : ''} ${isRoDisabled ? 'disabled' : ''} title="${escapeHtml(tool.label)}${isRoDisabled ? ' (Solo lectura)' : ''}">
+            <img src="${iconUrl}" width="16" height="16" alt="" />
+            <span class="palette-btn-label">${escapeHtml(tool.label)}</span>
+          </button>
+        `;
       }
-      tool.shortcut = '';
-    });
+      return h;
+    }
+
+    const isMainCollapsed = Boolean(state.paletteMainCollapsed);
 
     let html = `
-      <div class="palette-header">
-        <img src="${getIcon(dgDef.icon)}" width="15" height="15" alt="" />
-        <span>${escapeHtml(dgDef.shortLabel || dgDef.label || 'UWE')} Toolbar</span>
+      <!-- Active Diagram Toolbar Section (Primary) -->
+      <div class="palette-header palette-header-main" id="palette-header-main" title="Clic para colapsar o expandir la barra principal">
+        <span class="palette-accordion-caret">${isMainCollapsed ? '▶' : '▼'}</span>
+        <img src="${getIcon(activeDgDef.icon)}" width="15" height="15" alt="" />
+        <span class="palette-header-title">${escapeHtml(activeDgDef.shortLabel || activeDgDef.label || 'UWE')} Toolbar</span>
       </div>
-      <div class="palette-tools">
+      <div class="palette-tools" id="palette-main-tools" style="${isMainCollapsed ? 'display:none;' : ''}">
+        ${renderToolsHtml(activeDgDef.tools)}
+      </div>
+
+      <!-- Other Diagram Toolbars (Collapsible Accordion Drawers) -->
+      <div class="palette-accordion-section-title">
+        <span>Otros Diagramas</span>
+      </div>
+      <div class="palette-accordions-container">
     `;
 
-    for (const tool of dgDef.tools) {
-      if (tool.type === 'SEPARATOR') {
-        html += `<div class="palette-separator">${escapeHtml(tool.label)}</div>`;
-        continue;
-      }
-      const isActive = state.activeTool && state.activeTool.id === tool.id;
-      const iconUrl = getToolIcon(tool);
-      const isDraggable = (tool.type === 'NODE' || tool.type === 'NESTED_PROPERTY');
+    // Loop over the other 9 diagram types
+    const otherDiagramKeys = Object.keys(ENGINE.DIAGRAM_TYPES).filter(k => k !== activeDgDef.id && k !== dg.diagramType);
+    for (const key of otherDiagramKeys) {
+      const dt = ENGINE.DIAGRAM_TYPES[key];
+      if (!dt) continue;
+      const isExpanded = Boolean(state.paletteExpandedSections && state.paletteExpandedSections.has(dt.id));
       html += `
-        <button class="palette-btn ${isActive ? 'active' : ''}" data-tool-id="${tool.id}" ${isDraggable ? 'draggable="true"' : ''} title="${escapeHtml(tool.label)}">
-          <img src="${iconUrl}" width="16" height="16" alt="" />
-          <span class="palette-btn-label">${escapeHtml(tool.label)}</span>
-        </button>
+        <div class="palette-accordion-group">
+          <div class="palette-accordion-header ${isExpanded ? 'expanded' : ''}" data-accordion-id="${dt.id}">
+            <span class="palette-accordion-caret">${isExpanded ? '▼' : '▶'}</span>
+            <img src="${getIcon(dt.icon)}" width="14" height="14" alt="" />
+            <span class="palette-accordion-title">${escapeHtml(dt.label || dt.shortLabel)}</span>
+          </div>
+          <div class="palette-accordion-body" style="${isExpanded ? '' : 'display:none;'}">
+            ${renderToolsHtml(dt.tools)}
+          </div>
+        </div>
       `;
     }
 
     html += `</div>`;
     palEl.innerHTML = html;
 
+    // 1. Bind Main Header Toggle
+    const mainHeader = document.getElementById('palette-header-main');
+    if (mainHeader) {
+      mainHeader.onclick = () => {
+        state.paletteMainCollapsed = !state.paletteMainCollapsed;
+        renderPalette();
+      };
+    }
+
+    // 2. Bind Other Accordion Headers Toggle
+    palEl.querySelectorAll('.palette-accordion-header').forEach(hdr => {
+      hdr.onclick = () => {
+        const accId = hdr.dataset.accordionId;
+        if (!state.paletteExpandedSections) state.paletteExpandedSections = new Set();
+        if (state.paletteExpandedSections.has(accId)) {
+          state.paletteExpandedSections.delete(accId);
+        } else {
+          state.paletteExpandedSections.add(accId);
+        }
+        renderPalette();
+      };
+    });
+
+    // 3. Bind all tool buttons (clicks and drag-starts across all toolbars)
     palEl.querySelectorAll('.palette-btn').forEach(btn => {
       const toolId = btn.dataset.toolId;
-      const tool = dgDef.tools.find(t => t.id === toolId);
+      const tool = findToolById(toolId);
       if (!tool) return;
 
       btn.onclick = (ev) => {
+        if (state.isReadOnly && tool.type !== 'SELECT') {
+          showToast('Modo solo lectura: solo el creador del proyecto puede modificarlo.', 'warning');
+          return;
+        }
         if (state.activeTool && state.activeTool.id === tool.id) {
           state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
           state.pendingEdgeSourceId = null;
@@ -648,6 +1948,10 @@
 
       if (tool.type === 'NODE' || tool.type === 'NESTED_PROPERTY') {
         btn.ondragstart = (ev) => {
+          if (state.isReadOnly) {
+            ev.preventDefault();
+            return false;
+          }
           hideToolFollower();
           state.draggedPaletteTool = tool;
           ev.dataTransfer.setData('text/plain', tool.id);
@@ -867,22 +2171,45 @@
     const iconUrl = getStereotypeIcon(el.stereotype, el.umlType);
     const tagsEntries = Object.entries(el.tags || {}).filter(([, v]) => v !== '' && v !== false && v !== 'false');
 
+    // Name position offsets: allows moving "Nombre del Elemento" independently of the figure
+    const isSmall = ['InitialNode', 'FinalNode', 'DecisionNode'].includes(el.umlType);
+    const nameOffX = layout.nameOffsetX || 0;
+    const nameOffY = layout.nameOffsetY !== undefined ? layout.nameOffsetY : (isSmall ? 32 : 0);
+    const hasNameOffset = nameOffX !== 0 || (isSmall ? nameOffY !== 32 : nameOffY !== 0);
+    const nameStyle = `transform: translate(${nameOffX}px, ${nameOffY}px);`;
+
+    const externalNameHtml = `
+      <div class="md-movable-name md-node-external-name ${hasNameOffset ? 'md-name-offset' : ''}" style="${nameStyle}" title="Nombre del Elemento (Arrastra para mover independientemente de la figura)">
+        <span class="md-name-text">${escapeHtml(el.name)}</span>
+        <span class="md-name-drag-handle" title="Mover Nombre independientemente">✥</span>
+      </div>
+    `;
+
     // Special rendering by UML metaclass
     if (el.umlType === 'InitialNode') {
       div.classList.add('md-node-initial');
       div.style.width = '28px';
       div.style.height = '28px';
       div.style.minHeight = '28px';
-      div.innerHTML = `<div class="md-initial-circle" title="${escapeHtml(el.name)}"></div>`;
+      div.innerHTML = `
+        <div class="md-initial-circle" title="${escapeHtml(el.name)}"></div>
+        ${externalNameHtml}
+      `;
     } else if (el.umlType === 'FinalNode') {
       div.classList.add('md-node-final');
       div.style.width = '30px';
       div.style.height = '30px';
       div.style.minHeight = '30px';
-      div.innerHTML = `<div class="md-final-bullseye" title="${escapeHtml(el.name)}"><div></div></div>`;
+      div.innerHTML = `
+        <div class="md-final-bullseye" title="${escapeHtml(el.name)}"><div></div></div>
+        ${externalNameHtml}
+      `;
     } else if (el.umlType === 'DecisionNode') {
       div.classList.add('md-node-decision');
-      div.innerHTML = `<div class="md-decision-diamond" title="${escapeHtml(el.name)}"></div>`;
+      div.innerHTML = `
+        <div class="md-decision-diamond" title="${escapeHtml(el.name)}"></div>
+        ${externalNameHtml}
+      `;
     } else if (el.umlType === 'Actor') {
       div.classList.add('md-node-actor');
       div.innerHTML = `
@@ -893,9 +2220,12 @@
           <line x1="18" y1="34" x2="6" y2="49" stroke="#99795C" stroke-width="1.6"/>
           <line x1="18" y1="34" x2="30" y2="49" stroke="#99795C" stroke-width="1.6"/>
         </svg>
-        <div class="md-actor-caption">
+        <div class="md-actor-caption md-movable-name ${hasNameOffset ? 'md-name-offset' : ''}" style="${nameStyle}" title="Nombre del Elemento (Arrastra para mover independientemente de la figura)">
           ${el.stereotype ? `<div class="md-stereo">«${escapeHtml(el.stereotype)}»</div>` : ''}
-          <div class="md-title">${escapeHtml(el.name)}</div>
+          <div class="md-title">
+            <span class="md-name-text">${escapeHtml(el.name)}</span>
+            <span class="md-name-drag-handle" title="Mover Nombre independientemente">✥</span>
+          </div>
           ${tagsEntries.map(([k, v]) => `<div class="md-tag">{${escapeHtml(k)} = ${escapeHtml(String(v))}}</div>`).join('')}
         </div>
       `;
@@ -911,7 +2241,10 @@
               ${iconUrl ? `<img src="${iconUrl}" width="15" height="15" class="md-usecase-inline-icon" alt="" />` : ''}
             </div>
           ` : ''}
-          <div class="md-usecase-title">${escapeHtml(el.name)}</div>
+          <div class="md-usecase-title md-movable-name ${hasNameOffset ? 'md-name-offset' : ''}" style="${nameStyle}" title="Nombre del Elemento (Arrastra para mover independientemente de la figura)">
+            <span class="md-name-text">${escapeHtml(el.name)}</span>
+            <span class="md-name-drag-handle" title="Mover Nombre independientemente">✥</span>
+          </div>
           ${tagsEntries.length > 0 ? `
             <div class="md-usecase-tags">
               ${tagsEntries.map(([k, v]) => `<div class="md-tag">{${escapeHtml(k)} = ${escapeHtml(String(v))}}</div>`).join('')}
@@ -944,7 +2277,10 @@
             <span class="md-stereo">${el.stereotype ? `«${escapeHtml(el.stereotype)}»` : ''}</span>
             <img src="${iconUrl}" width="16" height="16" class="md-node-icon" alt="" />
           </div>
-          <div class="md-title">${escapeHtml(el.name)}</div>
+          <div class="md-title md-movable-name ${hasNameOffset ? 'md-name-offset' : ''}" style="${nameStyle}" title="Nombre del Elemento (Arrastra para mover independientemente de la figura)">
+            <span class="md-name-text">${escapeHtml(el.name)}</span>
+            <span class="md-name-drag-handle" title="Mover Nombre independientemente">✥</span>
+          </div>
           ${tagsEntries.length > 0 ? `
             <div class="md-tags-list">
               ${tagsEntries.map(([k, v]) => `<div class="md-tag">{${escapeHtml(k)}=${escapeHtml(String(v))}}</div>`).join('')}
@@ -992,7 +2328,7 @@
     }
 
     // Resize Handle for ANY resizable node (UseCase, Class, State, Action, Pin)
-    if (isSelected && !['InitialNode', 'FinalNode', 'DecisionNode', 'Actor'].includes(el.umlType)) {
+    if (isSelected && !state.isReadOnly && !['InitialNode', 'FinalNode', 'DecisionNode', 'Actor'].includes(el.umlType)) {
       const handle = document.createElement('div');
       handle.className = 'md-resize-handle';
       handle.title = 'Arrastrar para cambiar el tamaño';
@@ -1013,6 +2349,37 @@
       div.appendChild(b);
     }
 
+    // Bind independent dragging for "Nombre del Elemento"
+    const nameEl = div.querySelector('.md-movable-name');
+    if (nameEl) {
+      nameEl.onmousedown = (ev) => {
+        if (ev.button !== 0) return;
+        ev.stopPropagation(); // Prevents moving the entire node/figure!
+        if (state.isReadOnly) {
+          showToast('Modo solo lectura: solo el creador del proyecto puede modificarlo.', 'warning');
+          return;
+        }
+
+        const currentOffsetX = layout.nameOffsetX || 0;
+        const currentOffsetY = layout.nameOffsetY !== undefined ? layout.nameOffsetY : (isSmall ? 32 : 0);
+
+        state.draggingName = {
+          elementId: el.id,
+          startX: ev.clientX,
+          startY: ev.clientY,
+          origOffsetX: currentOffsetX,
+          origOffsetY: currentOffsetY,
+          isSmall
+        };
+
+        state.selectedNodeId = el.id;
+        state.selectedNodeIds = new Set([el.id]);
+        state.selectedEdgeId = null;
+        state.selectedNestedPropIdx = null;
+        renderAll();
+      };
+    }
+
     // Bind Node Mouse Events
     div.onmousedown = (ev) => {
       if (ev.button !== 0) return;
@@ -1020,6 +2387,7 @@
 
       // Check if clicking resize handle
       if (ev.target.classList.contains('md-resize-handle')) {
+        if (state.isReadOnly) return;
         state.resizing = {
           elementId: el.id,
           startX: ev.clientX,
@@ -1032,6 +2400,10 @@
 
       // Check if active tool is NESTED_PROPERTY (DrawPropertyAction inside Presentation Class)
       if (state.activeTool && state.activeTool.type === 'NESTED_PROPERTY') {
+        if (state.isReadOnly) {
+          showToast('Modo solo lectura: solo el creador del proyecto puede modificarlo.', 'warning');
+          return;
+        }
         if (!el.nestedProperties) el.nestedProperties = [];
         const newPropName = `${state.activeTool.stereotype}_${el.nestedProperties.length + 1}`;
         el.nestedProperties.push({
@@ -1053,6 +2425,10 @@
 
       // Check if active tool is EDGE (drawing association / link / transition / dependency)
       if (state.activeTool && state.activeTool.type === 'EDGE') {
+        if (state.isReadOnly) {
+          showToast('Modo solo lectura: solo el creador del proyecto puede crear relaciones.', 'warning');
+          return;
+        }
         if (!state.pendingEdgeSourceId) {
           state.pendingEdgeSourceId = el.id;
           setStatus(`Origen seleccionado: ${el.name}. Ahora haz clic en el elemento destino.`);
@@ -1083,6 +2459,7 @@
           hideToolFollower();
           showToast(`Relación ${newRel.stereotype ? '«' + newRel.stereotype + '»' : newRel.umlType} creada`, 'success');
           renderAll();
+          markChange();
         }
         return;
       }
@@ -1141,14 +2518,16 @@
         dragItems.push({ elementId: el.id, origX: layout.x, origY: layout.y });
       }
 
-      state.dragging = {
-        elementId: el.id,
-        startX: ev.clientX,
-        startY: ev.clientY,
-        origX: layout.x,
-        origY: layout.y,
-        items: dragItems
-      };
+      if (!state.isReadOnly) {
+        state.dragging = {
+          elementId: el.id,
+          startX: ev.clientX,
+          startY: ev.clientY,
+          origX: layout.x,
+          origY: layout.y,
+          items: dragItems
+        };
+      }
       renderAll();
     };
 
@@ -1159,11 +2538,14 @@
     };
 
     div.ondrop = (ev) => {
+      if (state.isReadOnly) {
+        ev.preventDefault();
+        return;
+      }
       let tool = state.draggedPaletteTool;
       if (!tool) {
         const toolId = ev.dataTransfer?.getData('text/plain');
-        const dgDef = dg && (ENGINE.DIAGRAM_TYPES[dg.diagramType] || ENGINE.DIAGRAM_TYPES.CONTENT);
-        if (toolId && dgDef) tool = dgDef.tools.find(t => t.id === toolId);
+        if (toolId) tool = findToolById(toolId);
       }
       if (tool && tool.type === 'NESTED_PROPERTY') {
         ev.stopPropagation();
@@ -1205,6 +2587,7 @@
 
       inspEl.innerHTML = `
         <div class="insp-section">
+          ${state.isReadOnly ? `<div class="insp-readonly-badge">🔒 Modo Solo Lectura (Solo el autor puede editar)</div>` : ''}
           <div class="insp-header">
             <img src="${getIcon('MDassociationDirected.png')}" width="16" height="16" alt="" />
             <span>Relación UML / UWE</span>
@@ -1260,11 +2643,21 @@
         </div>
       `;
 
-      document.getElementById('insp-rel-umltype').onchange = (e) => { rel.umlType = e.target.value; renderAll(); };
-      document.getElementById('insp-rel-stereo').oninput = (e) => { rel.stereotype = e.target.value.trim(); renderCanvas(); syncXmlView(); };
-      document.getElementById('insp-rel-name').oninput = (e) => { rel.name = e.target.value; renderCanvas(); syncXmlView(); };
-      document.getElementById('insp-rel-srcmult').oninput = (e) => { rel.sourceMult = e.target.value; renderCanvas(); syncXmlView(); };
-      document.getElementById('insp-rel-tgtmult').oninput = (e) => { rel.targetMult = e.target.value; renderCanvas(); syncXmlView(); };
+      if (state.isReadOnly) {
+        inspEl.querySelectorAll('input, select, textarea').forEach(i => i.disabled = true);
+        inspEl.querySelectorAll('button').forEach(b => {
+          b.disabled = true;
+          b.style.opacity = '0.5';
+          b.style.cursor = 'not-allowed';
+        });
+        return;
+      }
+
+      document.getElementById('insp-rel-umltype').onchange = (e) => { rel.umlType = e.target.value; renderAll(); markChange(); };
+      document.getElementById('insp-rel-stereo').oninput = (e) => { rel.stereotype = e.target.value.trim(); renderCanvas(); syncXmlView(); markChange(); };
+      document.getElementById('insp-rel-name').oninput = (e) => { rel.name = e.target.value; renderCanvas(); syncXmlView(); markChange(); };
+      document.getElementById('insp-rel-srcmult').oninput = (e) => { rel.sourceMult = e.target.value; renderCanvas(); syncXmlView(); markChange(); };
+      document.getElementById('insp-rel-tgtmult').oninput = (e) => { rel.targetMult = e.target.value; renderCanvas(); syncXmlView(); markChange(); };
       document.getElementById('btn-delete-edge').onclick = () => deleteSelectedElementOrEdge();
 
       inspEl.querySelectorAll('[data-insert-prim]').forEach(btn => {
@@ -1292,14 +2685,26 @@
 
       inspEl.innerHTML = `
         <div class="insp-section">
+          ${state.isReadOnly ? `<div class="insp-readonly-badge">🔒 Modo Solo Lectura (Solo el autor puede editar)</div>` : ''}
           <div class="insp-header">
             <img src="${getStereotypeIcon(el.stereotype, el.umlType)}" width="16" height="16" alt="" />
             <span>Elemento «${escapeHtml(el.stereotype || el.umlType)}»</span>
           </div>
 
           <div class="insp-field">
-            <label>Nombre del Elemento</label>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <label>Nombre del Elemento</label>
+              ${(layout && (layout.nameOffsetX || (['InitialNode', 'FinalNode', 'DecisionNode'].includes(el.umlType) ? (layout.nameOffsetY !== undefined && layout.nameOffsetY !== 32) : layout.nameOffsetY))) ? `
+                <button class="md-btn md-btn-sm" id="btn-reset-name-pos" title="Restablecer la posición del nombre a su lugar original" style="font-size:9px; padding:1px 5px;">
+                  ↺ Restablecer Posición
+                </button>
+              ` : ''}
+            </div>
             <input type="text" id="insp-el-name" class="md-input" value="${escapeHtml(el.name)}" />
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:9.5px; color:#666; margin-top:2px;">
+              <span>Offset: X: ${layout?.nameOffsetX || 0}px, Y: ${layout?.nameOffsetY !== undefined ? layout.nameOffsetY : (['InitialNode', 'FinalNode', 'DecisionNode'].includes(el.umlType) ? 32 : 0)}px</span>
+              <span style="color:#0055D4;">Arrastra el nombre en el lienzo ✥</span>
+            </div>
           </div>
 
           <div class="insp-row-2">
@@ -1454,20 +2859,33 @@
         </div>
       `;
 
+      if (state.isReadOnly) {
+        inspEl.querySelectorAll('input, select, textarea').forEach(i => i.disabled = true);
+        inspEl.querySelectorAll('button').forEach(b => {
+          b.disabled = true;
+          b.style.opacity = '0.5';
+          b.style.cursor = 'not-allowed';
+        });
+        return;
+      }
+
       // Bind Element Inspector Events
       document.getElementById('insp-el-name').oninput = (e) => {
         el.name = e.target.value;
         renderCanvas();
         renderContainmentTree();
         syncXmlView();
+        markChange();
       };
       document.getElementById('insp-el-stereo').onchange = (e) => {
         el.stereotype = e.target.value;
         renderAll();
+        markChange();
       };
       document.getElementById('insp-el-umltype').onchange = (e) => {
         el.umlType = e.target.value;
         renderAll();
+        markChange();
       };
 
       // Bind Canva Layer & Group Inspector Buttons
@@ -1484,6 +2902,7 @@
             layout.zIndex = Math.max(1, parseInt(e.target.value, 10) || 1);
             renderCanvas();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1496,6 +2915,7 @@
             layout.width = Math.max(60, parseInt(e.target.value, 10) || 60);
             renderCanvas();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1506,6 +2926,7 @@
             layout.height = Math.max(35, parseInt(e.target.value, 10) || 35);
             renderCanvas();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1516,6 +2937,7 @@
             layout.height = 65;
             renderAll();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1526,6 +2948,7 @@
             layout.height = 85;
             renderAll();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1536,6 +2959,7 @@
             layout.height = 110;
             renderAll();
             syncXmlView();
+            markChange();
           }
         };
       }
@@ -1545,16 +2969,19 @@
           nestedProp.name = e.target.value;
           renderCanvas();
           syncXmlView();
+          markChange();
         };
         document.getElementById('insp-nprop-stereo').oninput = (e) => {
           nestedProp.stereotype = e.target.value;
           renderCanvas();
           syncXmlView();
+          markChange();
         };
         document.getElementById('btn-del-nprop').onclick = () => {
           el.nestedProperties.splice(state.selectedNestedPropIdx, 1);
           state.selectedNestedPropIdx = null;
           renderAll();
+          markChange();
         };
       }
 
@@ -1564,6 +2991,7 @@
           el.attributes[idx] = inp.value;
           renderCanvas();
           syncXmlView();
+          markChange();
         };
       });
       inspEl.querySelectorAll('.insp-attr-del').forEach(btn => {
@@ -1571,16 +2999,17 @@
           const idx = parseInt(btn.dataset.idx, 10);
           el.attributes.splice(idx, 1);
           renderAll();
+          markChange();
         };
       });
       document.getElementById('btn-add-attr').onclick = () => {
         if (!el.attributes) el.attributes = [];
         el.attributes.push(`-attr${el.attributes.length + 1} : String`);
-        // Expand node height slightly
         const dg = getActiveDiagram();
         const nl = dg && dg.nodes.find(n => n.elementId === el.id);
         if (nl) nl.height = Math.max(nl.height, 80 + el.attributes.length * 18);
         renderAll();
+        markChange();
       };
 
       inspEl.querySelectorAll('.insp-tag-input').forEach(inp => {
@@ -1594,6 +3023,7 @@
           }
           renderCanvas();
           syncXmlView();
+          markChange();
         };
         inp.oninput = handler;
         inp.onchange = handler;
@@ -1611,6 +3041,7 @@
           renderCanvas();
           renderInspector();
           syncXmlView();
+          markChange();
         };
       });
 
@@ -1621,6 +3052,7 @@
           });
           showToast(`Tagged Values copiados a ${el.nestedProperties.length} propiedades anidadas`, 'success');
           renderAll();
+          markChange();
         } else {
           showToast('Los Tagged Values del elemento están sincronizados en el perfil UWE', 'info');
         }
@@ -1670,6 +3102,7 @@
         renderContainmentTree();
         renderCanvas();
         syncXmlView();
+        markChange();
       };
     }
 
@@ -1741,6 +3174,7 @@
     state.selectedNodeId = newElId;
     showToast(`Primitiva de acceso «${primitiveStereo}» (${primName}) insertada con multiplicidad *`, 'success');
     renderAll();
+    markChange();
   }
 
   // ==================== CANVA-STYLE LAYERING & GROUPING ====================
@@ -1769,6 +3203,7 @@
     }
     renderAll();
     syncXmlView();
+    markChange();
     showToast('🔼 Elemento(s) al Frente (Capa superior)', 'info');
   }
 
@@ -1791,6 +3226,7 @@
     }
     renderAll();
     syncXmlView();
+    markChange();
     showToast('🔽 Elemento(s) al Fondo (Capa inferior)', 'info');
   }
 
@@ -1808,6 +3244,7 @@
     }
     renderAll();
     syncXmlView();
+    markChange();
     showToast('⬆️ Elemento(s) una capa Adelante', 'info');
   }
 
@@ -1825,6 +3262,7 @@
     }
     renderAll();
     syncXmlView();
+    markChange();
     showToast('⬇️ Elemento(s) una capa Atrás', 'info');
   }
 
@@ -1844,6 +3282,7 @@
     state.selectedNodeIds = new Set(targets);
     renderAll();
     syncXmlView();
+    markChange();
     showToast(`🔗 ${targets.length} elementos agrupados. ¡Ahora se mueven y organizan juntos!`, 'success');
   }
 
@@ -1874,6 +3313,7 @@
     state.selectedNodeIds = new Set(targets.filter(id => dg.nodes.some(n => n.elementId === id)));
     renderAll();
     syncXmlView();
+    markChange();
     showToast(`🔓 ${count} elementos desagrupados. Ahora se mueven individualmente`, 'success');
   }
 
@@ -1889,6 +3329,7 @@
       showToast('Relación eliminada', 'info');
       renderAll();
       syncXmlView();
+      markChange();
       return;
     }
     const idsToDelete = state.selectedNodeIds && state.selectedNodeIds.size > 0
@@ -1910,6 +3351,7 @@
       showToast(idsToDelete.length === 1 ? 'Elemento eliminado del modelo' : `${idsToDelete.length} elementos eliminados`, 'info');
       renderAll();
       syncXmlView();
+      markChange();
     }
   }
 
@@ -1951,6 +3393,7 @@
       renderAll();
       if (!silent) {
         showToast('Modelo actualizado exitosamente desde el código XML / XMI', 'success');
+        markChange();
       }
     } catch (e) {
       showToast(`Error en sintaxis XML: ${e.message}`, 'error');
@@ -2243,13 +3686,21 @@
 
   // ==================== SQLITE PORTABLE FILE EXPORT / IMPORT / INSPECTOR ====================
   async function downloadPortableSqliteFile() {
+    if (state.xmlDirty) {
+      applyXmlFromEditor(true);
+    }
+    const projName = (state.model.name || 'Proyecto_UWE').trim();
+    const cleanBase = projName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'Proyecto_UWE';
+    const defaultFilename = `${cleanBase}.sqlite.db`;
+    const xmlContent = ENGINE.modelToXml(state.model);
+
     try {
-      setStatus('Generando archivo SQLite relacional (.uwe.sqlite)...');
-      const xmlContent = ENGINE.modelToXml(state.model);
+      setStatus('Generando archivo de base de datos relacional (.sqlite.db)...');
       const res = await apiFetch('/api/sqlite/export', {
         method: 'POST',
         body: JSON.stringify({
-          name: state.model.name,
+          id: state.currentProjectId || 'prj_export',
+          name: projName,
           model: state.model,
           xmlContent
         })
@@ -2262,19 +3713,64 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = res.filename || `${state.model.name}.uwe.sqlite`;
+        const dlName = (res.filename && res.filename.endsWith('.sqlite.db')) ? res.filename : defaultFilename;
+        a.download = dlName;
         a.click();
         URL.revokeObjectURL(url);
-        showToast(`Archivo SQLite descargado: ${res.filename} (${Math.round(res.sizeBytes / 1024)} KB)`, 'success');
+        const kb = Math.max(1, Math.round((res.sizeBytes || bytes.length) / 1024));
+        setStatus(`Proyecto exportado: ${dlName} (${kb} KB)`);
+        showToast(`Proyecto exportado exitosamente: ${dlName} (${kb} KB)`, 'success');
+        return;
       }
-    } catch (e) {
-      showToast(`Error exportando SQLite: ${e.message}`, 'error');
+    } catch (_e) {
+      console.warn('Server SQLite export fallback to offline container:', _e);
+    }
+
+    // Offline client-side fallback (.sqlite.db portable container)
+    try {
+      const portablePayload = JSON.stringify({
+        magicuwe_sqlite_version: '1.5.0',
+        format: 'MagicUWE_SQLite_DB',
+        exported_at: new Date().toISOString(),
+        project: {
+          id: state.currentProjectId || 'prj_export',
+          name: projName,
+          description: 'Exported MagicUWE Project (.sqlite.db)',
+          model: state.model,
+          xml: xmlContent
+        },
+        tables: {
+          packages: state.model.packages || [],
+          elements: state.model.elements || [],
+          relationships: state.model.relationships || [],
+          diagrams: state.model.diagrams || []
+        }
+      }, null, 2);
+      const contentStr = 'SQLite format 3\0-- MagicUWE Portable DB --\n' + portablePayload;
+      const blob = new Blob([contentStr], { type: 'application/vnd.sqlite3' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = defaultFilename;
+      a.click();
+      URL.revokeObjectURL(url);
+      const kb = Math.max(1, Math.round(blob.size / 1024));
+      setStatus(`Proyecto exportado: ${defaultFilename} (${kb} KB)`);
+      showToast(`Proyecto exportado exitosamente: ${defaultFilename} (${kb} KB)`, 'success');
+    } catch (err) {
+      showToast(`Error exportando .sqlite.db: ${err.message}`, 'error');
     }
   }
 
   function importPortableSqliteFile(file) {
+    if (!file) return;
+    setStatus(`Importando proyecto desde "${file.name}"...`);
     const reader = new FileReader();
     reader.onload = async () => {
+      let importedModel = null;
+      let importedProjMeta = null;
+      let importedStats = null;
+
       try {
         const base64 = reader.result.split(',')[1] || reader.result;
         const res = await apiFetch('/api/sqlite/import', {
@@ -2282,16 +3778,122 @@
           body: JSON.stringify({ base64 })
         });
         if (res.model) {
-          state.model = res.model;
-          state.activeDiagramId = state.model.diagrams[0]?.id || '';
-          state.selectedNodeId = null;
-          state.selectedEdgeId = null;
-          renderAll();
-          showToast(`Archivo .uwe.sqlite importado (${res.stats?.elements || state.model.elements.length} elementos)`, 'success');
+          importedModel = res.model;
+          importedProjMeta = res.project || {};
+          importedStats = res.stats || {};
         }
       } catch (e) {
-        showToast(`Error al importar .uwe.sqlite: ${e.message}`, 'error');
+        console.warn('Server import failed, trying local parser:', e);
+        // Client-side fallback parser
+        try {
+          const base64 = reader.result.split(',')[1] || reader.result;
+          const rawStr = decodeURIComponent(escape(atob(base64)));
+          const marker = '-- MagicUWE Portable DB --\n';
+          const mIdx = rawStr.indexOf(marker);
+          if (mIdx !== -1) {
+            const parsed = JSON.parse(rawStr.slice(mIdx + marker.length).trim());
+            if (parsed?.project?.model) {
+              importedModel = parsed.project.model;
+              importedProjMeta = parsed.project;
+            }
+          }
+        } catch (_localErr) {
+          showToast(`Error al importar archivo .sqlite.db: ${e.message}`, 'error');
+          return;
+        }
       }
+
+      if (!importedModel || !Array.isArray(importedModel.packages)) {
+        showToast('El archivo seleccionado no contiene un proyecto UWE válido.', 'error');
+        return;
+      }
+
+      // Clean name and check uniqueness against existing projects
+      const rawName = (
+        importedProjMeta?.name ||
+        importedModel.name ||
+        file.name.replace(/\.(uwe\.)?(sqlite3?|db)(\.db)?$/i, '') ||
+        'Proyecto_Importado'
+      ).trim();
+      const finalName = isProjectNameDuplicate(rawName) ? getUniqueProjectName(rawName) : rawName;
+      importedModel.name = finalName;
+
+      // Clear URL share/example params if any
+      const url = new URL(window.location.href);
+      url.searchParams.delete('share');
+      url.searchParams.delete('p');
+      url.searchParams.delete('example');
+      window.history.replaceState({}, '', url.pathname);
+
+      const newProjId = 'prj_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      state.model = importedModel;
+      state.currentProjectId = state.user ? newProjId : null;
+      state.isExample = false;
+      state.exampleId = null;
+      state.isReadOnly = false;
+      state.projectOwnerId = state.user?.id || null;
+      state.projectOwnerName = state.user?.name || 'Tú';
+      state.activeDiagramId = state.model.diagrams[0]?.id || '';
+      state.selectedNodeId = null;
+      if (state.selectedNodeIds) state.selectedNodeIds.clear();
+      state.selectedEdgeId = null;
+
+      const xmlContent = ENGINE.modelToXml(state.model);
+
+      // Persist immediately in user vault + cloud SQLite (or guest storage)
+      if (state.user) {
+        const record = {
+          id: newProjId,
+          user_id: state.user.id,
+          name: finalName,
+          description: importedProjMeta?.description || `Importado desde ${file.name}`,
+          model: JSON.parse(JSON.stringify(state.model)),
+          xmlContent,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        state.projects.unshift(record);
+        saveLocalUserVault(state.user, state.projects);
+
+        try {
+          const saveRes = await apiFetch('/api/projects', {
+            method: 'POST',
+            body: JSON.stringify({
+              id: newProjId,
+              name: finalName,
+              description: record.description,
+              model: state.model,
+              xmlContent
+            })
+          });
+          if (saveRes.project?.id) {
+            state.currentProjectId = saveRes.project.id;
+          }
+        } catch (_netErr) {
+          console.warn('Cloud save of imported project deferred to local vault:', _netErr);
+        }
+      } else {
+        localStorage.setItem('magicuwe_guest_model', JSON.stringify({
+          model: state.model,
+          xmlContent,
+          updatedAt: new Date().toISOString()
+        }));
+      }
+
+      lastSavedTime = new Date();
+      changeCounter = 0;
+      updateSaveIndicatorUI();
+      updateReadOnlyBannerUI();
+      resetAutoSaveTimer();
+      renderAll();
+
+      const elCount = importedStats?.elements ?? (state.model.elements || []).length;
+      const dgCount = importedStats?.diagrams ?? (state.model.diagrams || []).length;
+      setStatus(`Proyecto "${finalName}" importado (${elCount} elementos, ${dgCount} diagramas)`);
+      showToast(
+        `Proyecto "${finalName}" importado exitosamente (${elCount} elementos, ${dgCount} diagramas)`,
+        'success'
+      );
     };
     reader.readAsDataURL(file);
   }
@@ -2445,13 +4047,26 @@
 
     const confirmBtn = document.getElementById('btn-confirm-example-select');
     if (confirmBtn) {
-      confirmBtn.onclick = () => {
+      confirmBtn.onclick = async () => {
         const selectedEx = examples.find(e => e.id === selectedId) || examples[0];
         if (selectedEx) {
           if (selectedEx.id === 'blank') {
-            state.model = selectedEx.create('Proyecto UWE');
+            const uniqueName = getUniqueProjectName('Mi_Proyecto_UWE');
+            state.model = selectedEx.create(uniqueName);
+            state.isExample = false;
+            state.exampleId = null;
+            state.currentProjectId = null;
+            state.projectOwnerId = state.user?.id || null;
+            state.projectOwnerName = state.user?.name || 'Tú';
+            state.isReadOnly = false; // Completely editable!
           } else {
             state.model = selectedEx.create();
+            state.isExample = true;
+            state.exampleId = selectedEx.id;
+            state.currentProjectId = null;
+            state.projectOwnerId = null;
+            state.projectOwnerName = '';
+            state.isReadOnly = true; // Official examples are read-only
           }
           state.activeDiagramId = state.model.diagrams[0]?.id || '';
           state.currentProjectId = null;
@@ -2465,8 +4080,23 @@
           }
 
           modal.style.display = 'none';
+
+          if (!state.isExample) {
+            syncActiveModelToLocalVault();
+            await performSave(true);
+          }
+
+          lastSavedTime = new Date();
+          changeCounter = 0;
+          updateSaveIndicatorUI();
+          resetAutoSaveTimer();
           renderAll();
-          showToast(`Proyecto '${state.model.name}' cargado exitosamente`, 'success');
+          showToast(
+            state.isExample
+              ? `Ejemplo oficial "${state.model.name}" cargado en modo Solo Lectura`
+              : `Proyecto en blanco "${state.model.name}" creado y guardado como proyecto propio`,
+            'success'
+          );
         }
       };
     }
@@ -2485,12 +4115,17 @@
   }
 
   function checkFirstVisit() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('share') || urlParams.get('p')) {
+      // Direct access via public share link: guests should view directly without login gate
+      return;
+    }
     const hasVisited = localStorage.getItem('magicuwe_visited');
     const token = localStorage.getItem('magicuwe_token');
     if (!state.user && !token) {
       // First visit or unauthenticated session: prompt user to log in / register
       openAuthModal({ isFirstVisit: true, initialTab: 'login' });
-    } else if (!hasVisited) {
+    } else if (!hasVisited && (!state.projects || state.projects.length === 0)) {
       openProjectSelectionModal({ isFirstVisit: true });
     }
   }
@@ -2503,7 +4138,7 @@
     const title = document.getElementById('modal-title');
     if (!modal || !content) return;
 
-    title.innerHTML = `<img src="${getIcon('stereotypes/userModel/user.png')}" width="16" height="16" /> Iniciar Sesión / Crear Cuenta (Multi-usuario y Gmail)`;
+    title.innerHTML = `<img src="${getIcon('stereotypes/userModel/user.png')}" width="16" height="16" /> Iniciar Sesión / Crear Cuenta`;
 
     const authConfig = await getAuthConfig();
     const isGoogleConfigured = Boolean(authConfig && authConfig.isGoogleConfigured);
@@ -2515,7 +4150,7 @@
             <span class="auth-welcome-icon">🎓</span>
             <div class="auth-welcome-text">
               <h4>¡Bienvenido a MagicUWE Web 1.5.0!</h4>
-              <p>Por favor <strong>inicia sesión</strong> o <strong>crea tu cuenta</strong> para comenzar a modelar proyectos UWE y guardarlos en la base de datos SQLite. También puedes ingresar rápidamente con tu cuenta de <strong>Gmail</strong>.</p>
+              <p>Por favor <strong>inicia sesión</strong> o <strong>crea tu cuenta</strong> para comenzar a modelar proyectos UWE. También puedes ingresar rápidamente con tu cuenta de <strong>Gmail</strong>.</p>
             </div>
           </div>
         ` : ''}
@@ -2585,14 +4220,8 @@
         <!-- TAB 3: GMAIL / GOOGLE -->
         <div class="auth-tab-pane ${initialTab === 'google' ? 'active' : ''}" id="pane-auth-google">
           ${isGoogleConfigured ? `
-            <div class="auth-env-badge configured">
-              <span>🟢</span>
-              <div>
-                <strong>Google OAuth 2.0 Activo:</strong> Cliente configurado desde <code>.env</code>. Puedes iniciar sesión usando el botón oficial de Google abajo.
-              </div>
-            </div>
-            <div id="google-official-btn-container" style="display:flex;justify-content:center;margin:6px 0;"></div>
-            <div style="text-align:center;font-size:10.5px;color:#777;margin:4px 0;">— o ingresa con tu dirección de Gmail abajo —</div>
+            <div id="google-official-btn-container" style="display:flex;justify-content:center;margin:10px 0 6px 0;"></div>
+            <div style="text-align:center;font-size:10.5px;color:#777;margin:6px 0;">— o ingresa con tu dirección de Gmail abajo —</div>
           ` : `
             <div class="auth-env-badge notice">
               <span>💡</span>
@@ -2615,22 +4244,6 @@
             <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
             Continuar con Cuenta de Gmail
           </button>
-
-          <details class="auth-help-details">
-            <summary style="cursor:pointer;font-weight:600;color:#1C4D8F;">⚙️ ¿Cómo generar y configurar el Token / Client ID de Google en el archivo .env?</summary>
-            <div style="margin-top:6px;padding-left:4px;">
-              <ol style="margin:4px 0;padding-left:18px;">
-                <li>Entra a la consola de Google: <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#316AC5;">Google Cloud Console &gt; Credenciales</a>.</li>
-                <li>Haz clic en <strong>Crear credenciales &gt; ID de cliente de OAuth</strong> (Tipo de aplicación: <em>Aplicación Web</em>).</li>
-                <li>En <strong>Orígenes de JavaScript autorizados</strong>, añade: <code>http://localhost:3456</code></li>
-                <li>Copia tu <strong>ID de cliente</strong> (termina en <code>.apps.googleusercontent.com</code>).</li>
-                <li>Pégalo en el archivo <code>magicuwe-web/.env</code>:
-                  <div style="background:#FFF;border:1px solid #CCC;padding:4px 6px;margin:4px 0;font-family:monospace;font-size:10.5px;">GOOGLE_CLIENT_ID=tu-id-de-cliente.apps.googleusercontent.com</div>
-                </li>
-                <li>Reinicia el servidor (o recarga). El botón oficial de Google aparecerá automáticamente arriba.</li>
-              </ol>
-            </div>
-          </details>
         </div>
 
         <!-- MODAL FOOTER -->
@@ -2674,7 +4287,7 @@
       renderAuthBar();
       await loadUserProjects();
       showToast(msg || `¡Bienvenido ${res.user.name}!`, 'success');
-      if (isFirstVisit && !localStorage.getItem('magicuwe_visited')) {
+      if (isFirstVisit && !localStorage.getItem('magicuwe_visited') && (!state.projects || state.projects.length === 0)) {
         openProjectSelectionModal({ isFirstVisit: true });
       }
     };
@@ -2834,51 +4447,92 @@
       <div class="new-dg-form">
         <div class="insp-field">
           <label>Nombre del Diagrama</label>
-          <input type="text" id="new-dg-name" class="md-input" value="New UWE Diagram" />
+          <input type="text" id="new-dg-name" class="md-input" value="New UWE Diagram" autofocus />
         </div>
         <div class="insp-field">
           <label>Selecciona el Tipo de Diagrama UWE (10 vistas oficiales)</label>
           <div class="new-dg-grid">
-            ${Object.values(ENGINE.DIAGRAM_TYPES).map((dt, idx) => `
-              <label class="new-dg-option ${idx === 0 ? 'selected' : ''}">
-                <input type="radio" name="new-dg-type" value="${dt.key}" ${idx === 0 ? 'checked' : ''} />
-                <img src="${getIcon(dt.icon)}" width="18" height="18" alt="" />
-                <div>
-                  <div class="new-dg-opt-title">${escapeHtml(dt.label)}</div>
-                  <div class="new-dg-opt-pkg">«${escapeHtml(dt.packageStereotype)}»</div>
-                </div>
-              </label>
-            `).join('')}
+            ${Object.entries(ENGINE.DIAGRAM_TYPES).map(([k, dt], idx) => {
+      const dtId = dt.id || dt.key || k;
+      const dtIcon = dt.icon || dt.iconKey || 'MDUWEclassDiagram.png';
+      const dtPkg = dt.pkgStereotype || dt.packageStereotype || '';
+      return `
+                <label class="new-dg-option ${idx === 0 ? 'selected' : ''}" data-dg-type="${dtId}">
+                  <input type="radio" name="new-dg-type" value="${dtId}" ${idx === 0 ? 'checked' : ''} />
+                  <img src="${getIcon(dtIcon)}" width="18" height="18" alt="" />
+                  <div>
+                    <div class="new-dg-opt-title">${escapeHtml(dt.label)}</div>
+                    <div class="new-dg-opt-pkg">«${escapeHtml(dtPkg)}»</div>
+                  </div>
+                </label>
+              `;
+    }).join('')}
           </div>
         </div>
-        <div style="margin-top:14px;text-align:right">
-          <button class="md-btn md-btn-primary" id="btn-confirm-new-dg">Crear Diagrama</button>
+        <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+          <button class="md-btn" id="btn-cancel-new-dg" type="button">Cancelar</button>
+          <button class="md-btn md-btn-primary" id="btn-confirm-new-dg" type="button">Crear Diagrama</button>
         </div>
       </div>
     `;
     modal.style.display = 'flex';
 
+    setTimeout(() => {
+      const input = document.getElementById('new-dg-name');
+      if (input) {
+        input.focus();
+        input.select();
+        input.onkeydown = (ev) => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            document.getElementById('btn-confirm-new-dg')?.click();
+          }
+        };
+      }
+    }, 50);
+
     content.querySelectorAll('.new-dg-option').forEach(lbl => {
       lbl.onclick = () => {
         content.querySelectorAll('.new-dg-option').forEach(l => l.classList.remove('selected'));
         lbl.classList.add('selected');
+        const radio = lbl.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
       };
     });
+
+    const cancelBtn = document.getElementById('btn-cancel-new-dg');
+    if (cancelBtn) {
+      cancelBtn.onclick = () => { modal.style.display = 'none'; };
+    }
 
     document.getElementById('btn-confirm-new-dg').onclick = () => {
       const name = document.getElementById('new-dg-name').value.trim() || 'UWE Diagram';
       const checked = content.querySelector('input[name="new-dg-type"]:checked');
-      const dgType = checked ? checked.value : 'NAVIGATION';
-      const dtDef = ENGINE.DIAGRAM_TYPES[dgType];
+      const selectedOption = content.querySelector('.new-dg-option.selected');
+      const dgType = (checked && checked.value && checked.value !== 'undefined')
+        ? checked.value
+        : (selectedOption ? selectedOption.dataset.dgType : 'NAVIGATION');
+      const dtDef = ENGINE.DIAGRAM_TYPES[dgType] || ENGINE.DIAGRAM_TYPES.NAVIGATION || ENGINE.DIAGRAM_TYPES.CONTENT;
 
-      let pkg = state.model.packages.find(p => p.stereotype === dtDef.packageStereotype);
+      const pkgStereo = dtDef.pkgStereotype || dtDef.packageStereotype || 'navigationModel';
+      const pkgName = dtDef.defaultPkgName || dtDef.shortLabel || dtDef.label || 'Navigation';
+
+      if (!state.model.packages) state.model.packages = [];
+      if (!state.model.diagrams) state.model.diagrams = [];
+
+      let pkg = state.model.packages.find(p => p.stereotype === pkgStereo);
       if (!pkg) {
         pkg = {
           id: 'pkg_' + Math.random().toString(36).slice(2, 8),
-          name: dtDef.shortLabel,
-          stereotype: dtDef.packageStereotype
+          name: pkgName,
+          stereotype: pkgStereo
         };
         state.model.packages.push(pkg);
+      }
+
+      // Automatically uncollapse the package so the new diagram is visible
+      if (state.collapsedPackages) {
+        state.collapsedPackages.delete(pkg.id);
       }
 
       const newDg = {
@@ -2891,9 +4545,17 @@
       };
       state.model.diagrams.push(newDg);
       state.activeDiagramId = newDg.id;
+      state.selectedNodeId = null;
+      if (state.selectedNodeIds) state.selectedNodeIds.clear();
+      state.selectedEdgeId = null;
+      state.selectedNestedPropIdx = null;
+      state.pendingEdgeSourceId = null;
+      state.activeTool = { id: 'select', type: 'SELECT', label: 'Select' };
+      hideToolFollower();
       modal.style.display = 'none';
       renderAll();
-      showToast(`Diagrama "${name}" (${dtDef.label}) creado`, 'success');
+      showToast(`Diagrama "${name}" (${dtDef.label}) creado y activado`, 'success');
+      markChange();
     };
   }
 
@@ -2931,8 +4593,8 @@
         let tool = state.draggedPaletteTool;
         if (!tool) {
           const toolId = ev.dataTransfer?.getData('text/plain');
-          if (toolId && dgDef) {
-            tool = dgDef.tools.find(t => t.id === toolId);
+          if (toolId) {
+            tool = findToolById(toolId);
           }
         }
         if (!tool && state.activeTool && (state.activeTool.type === 'NODE' || state.activeTool.type === 'NESTED_PROPERTY')) {
@@ -2948,7 +4610,7 @@
           // Check if dropped inside an existing container node
           const hitNode = dg.nodes.slice().reverse().find(nl => {
             return canvasX >= nl.x && canvasX <= nl.x + nl.width &&
-                   canvasY >= nl.y && canvasY <= nl.y + nl.height;
+              canvasY >= nl.y && canvasY <= nl.y + nl.height;
           });
           if (hitNode) {
             const targetEl = getElement(hitNode.elementId);
@@ -3094,10 +4756,26 @@
     });
 
     window.addEventListener('mouseup', () => {
-      if (state.dragging || state.resizing) {
+      let changed = false;
+      if (state.dragging) {
+        const dg = getActiveDiagram();
+        const nl = dg?.nodes?.find(n => n.elementId === state.dragging.elementId);
+        if (nl && (nl.x !== state.dragging.origX || nl.y !== state.dragging.origY)) {
+          changed = true;
+        }
         state.dragging = null;
+      }
+      if (state.resizing) {
+        const dg = getActiveDiagram();
+        const nl = dg?.nodes?.find(n => n.elementId === state.resizing.elementId);
+        if (nl && (nl.width !== state.resizing.origW || nl.height !== state.resizing.origH)) {
+          changed = true;
+        }
         state.resizing = null;
+      }
+      if (changed) {
         syncXmlView();
+        markChange();
       }
     });
 
@@ -3226,22 +4904,24 @@
     if (menuOpenExamples) menuOpenExamples.onclick = () => openProjectSelectionModal({ isFirstVisit: false });
     const btnExamplesQuick = document.getElementById('btn-examples-quick');
     if (btnExamplesQuick) btnExamplesQuick.onclick = () => openProjectSelectionModal({ isFirstVisit: false });
+    const menuNewDiagram = document.getElementById('menu-new-diagram');
+    if (menuNewDiagram) menuNewDiagram.onclick = openNewDiagramModal;
+    const btnTreeNewDiagram = document.getElementById('btn-tree-new-diagram');
+    if (btnTreeNewDiagram) btnTreeNewDiagram.onclick = openNewDiagramModal;
     const menuNewBlank = document.getElementById('menu-new-blank');
     if (menuNewBlank) {
       menuNewBlank.onclick = () => {
-        const name = prompt('Nombre del nuevo proyecto UWE:', 'Proyecto_UWE') || 'Proyecto_UWE';
-        state.model = ENGINE.createBlankUWEModel(name);
-        state.currentProjectId = null;
-        state.activeDiagramId = state.model.diagrams[0]?.id || 'dg_req_1';
-        state.selectedNodeId = null;
-        if (state.selectedNodeIds) state.selectedNodeIds.clear();
-        state.selectedEdgeId = null;
-        renderAll();
-        showToast(`Proyecto en blanco "${name}" inicializado`, 'success');
+        promptCreateNewBlankProject();
       };
     }
-    const menuSaveCloud = document.getElementById('menu-save-cloud');
-    if (menuSaveCloud) menuSaveCloud.onclick = saveCurrentProject;
+    const menuExportSqlite = document.getElementById('menu-export-sqlite');
+    if (menuExportSqlite) menuExportSqlite.onclick = downloadPortableSqliteFile;
+    const menuImportSqlite = document.getElementById('menu-import-sqlite');
+    if (menuImportSqlite) {
+      menuImportSqlite.onclick = () => {
+        document.getElementById('hidden-sqlite-input')?.click();
+      };
+    }
     const menuExportSvg = document.getElementById('menu-export-svg');
     if (menuExportSvg) menuExportSvg.onclick = exportDiagramSvg;
     const menuExportPng = document.getElementById('menu-export-png');
@@ -3286,32 +4966,42 @@
         const val = e.target.value;
         if (val === '__example_music__') {
           state.model = ENGINE.createMusicPortalDemoModel();
+          state.isExample = true;
+          state.exampleId = 'music_portal';
           state.currentProjectId = null;
           state.activeDiagramId = state.model.diagrams[0]?.id || 'dg_mp_req';
           state.selectedNodeId = null;
           if (state.selectedNodeIds) state.selectedNodeIds.clear();
           state.selectedEdgeId = null;
+          lastSavedTime = new Date();
+          changeCounter = 0;
+          updateSaveIndicatorUI();
+          resetAutoSaveTimer();
           renderAll();
-          showToast('Ejemplo oficial "Simple Music Portal" (UWE Sevilla 2010 - Nora Koch) cargado', 'success');
+          showToast('Ejemplo oficial "Simple Music Portal" (UWE Sevilla 2010 - Nora Koch) cargado (Solo Lectura)', 'info');
         } else if (val === '__example_addressbook__' || val === '__demo__') {
           state.model = ENGINE.createAddressBookDemoModel();
+          state.isExample = true;
+          state.exampleId = 'addressbook';
           state.currentProjectId = null;
           state.activeDiagramId = state.model.diagrams[0]?.id || 'dg_nav';
           state.selectedNodeId = null;
           if (state.selectedNodeIds) state.selectedNodeIds.clear();
           state.selectedEdgeId = null;
+          lastSavedTime = new Date();
+          changeCounter = 0;
+          updateSaveIndicatorUI();
+          resetAutoSaveTimer();
           renderAll();
-          showToast('Modelo de ejemplo AddressBook UWE cargado', 'success');
+          showToast('Modelo de ejemplo AddressBook UWE cargado (Solo Lectura)', 'info');
         } else if (val === '__blank__') {
-          const name = prompt('Nombre del nuevo proyecto UWE:', 'Proyecto_UWE') || 'Proyecto_UWE';
-          state.model = ENGINE.createBlankUWEModel(name);
-          state.currentProjectId = null;
-          state.activeDiagramId = state.model.diagrams[0]?.id || 'dg_req_1';
-          state.selectedNodeId = null;
-          if (state.selectedNodeIds) state.selectedNodeIds.clear();
-          state.selectedEdgeId = null;
-          renderAll();
-          showToast(`Proyecto en blanco "${name}" inicializado`, 'success');
+          promptCreateNewBlankProject();
+        } else if (val === '__import_sqlite__') {
+          renderProjectSelect();
+          document.getElementById('hidden-sqlite-input')?.click();
+        } else if (val === '__export_sqlite__') {
+          renderProjectSelect();
+          downloadPortableSqliteFile();
         } else if (val === '__open_modal__') {
           openProjectSelectionModal({ isFirstVisit: false });
         } else if (val !== '__local__') {
@@ -3319,6 +5009,16 @@
         }
       };
     }
+
+    const autosavePill = document.getElementById('autosave-indicator');
+    if (autosavePill) {
+      autosavePill.onclick = () => saveCurrentProject();
+    }
+
+    const btnShareProject = document.getElementById('btn-share-project');
+    if (btnShareProject) btnShareProject.onclick = openShareModal;
+    const menuShareProject = document.getElementById('menu-share-project');
+    if (menuShareProject) menuShareProject.onclick = openShareModal;
 
     const modalClose = document.getElementById('modal-close');
     if (modalClose) {
@@ -3340,6 +5040,22 @@
     return escapeHtml(str).replace(/'/g, '&apos;');
   }
 
+  function updateToolbarButtons() {
+    const isRo = Boolean(state.isReadOnly);
+    ['btn-bring-front', 'btn-bring-forward', 'btn-send-backward', 'btn-send-back', 'btn-group-nodes', 'btn-ungroup-nodes'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.disabled = isRo;
+        el.style.opacity = isRo ? '0.4' : '1';
+        el.style.cursor = isRo ? 'not-allowed' : 'pointer';
+      }
+    });
+    const btnTreeNew = document.getElementById('btn-tree-new-diagram');
+    if (btnTreeNew) {
+      btnTreeNew.style.display = isRo ? 'none' : 'inline-block';
+    }
+  }
+
   function renderAll() {
     renderProjectSelect();
     renderContainmentTree();
@@ -3348,7 +5064,16 @@
     renderCanvas();
     renderInspector();
     syncXmlView();
+    updateToolbarButtons();
+    updateReadOnlyBannerUI();
   }
+
+  // Flush active model to local vault before tab unload/reload
+  window.addEventListener('beforeunload', () => {
+    try {
+      syncActiveModelToLocalVault();
+    } catch (_e) {}
+  });
 
   // Boot application
   window.addEventListener('DOMContentLoaded', async () => {
@@ -3356,9 +5081,42 @@
     const logoImg = document.getElementById('brand-uwe-logo');
     if (logoImg) logoImg.src = getIcon('UWEicon.png');
     setupEvents();
-    renderAll();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const shareId = urlParams.get('share') || urlParams.get('p');
+    const exampleId = urlParams.get('example');
+
     await initAuth();
-    checkFirstVisit();
+
+    if (shareId) {
+      // Direct access via public share link: load project immediately without forcing login
+      await loadProjectById(shareId, true);
+    } else if (exampleId) {
+      if (exampleId === 'addressbook') {
+        state.model = ENGINE.createAddressBookDemoModel();
+        state.isExample = true;
+        state.exampleId = 'addressbook';
+        state.currentProjectId = null;
+        state.isReadOnly = true;
+      } else {
+        state.model = ENGINE.createMusicPortalDemoModel();
+        state.isExample = true;
+        state.exampleId = 'music_portal';
+        state.currentProjectId = null;
+        state.isReadOnly = true;
+      }
+      state.activeDiagramId = state.model.diagrams[0]?.id || '';
+      renderAll();
+    } else {
+      await loadUserProjects();
+      checkFirstVisit();
+    }
+
+    renderAll();
+    resetAutoSaveTimer();
+    startRelativeTimeUpdater();
+    updateSaveIndicatorUI();
+    updateReadOnlyBannerUI();
   });
 })();
 
